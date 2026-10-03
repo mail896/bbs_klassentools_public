@@ -16,6 +16,7 @@ import {
 import { drawSeatExport } from './seating-export.mjs?v=bbf03e43fb17';
 import { shuffle, groupSizes, draw, drawChances } from './logic.mjs?v=ff3b470a050d';
 const $ = (id) => document.getElementById(id);
+const entryCue = 'klassentools.entry';
 const entryParams = new URL(location.href).searchParams;
 const demoOnly = document.documentElement.dataset.demoOnly === 'true';
 const adminPage = !demoOnly && entryParams.has('admin');
@@ -692,6 +693,7 @@ $('manage').onclick = async () => {
   }
 };
 render();
+animateClassEntrance();
 
 $('local-files').onchange = $('local-photos').onchange = async (event) => {
   if (photoBusy) return;
@@ -865,6 +867,92 @@ async function loadSession() {
       'Der Anmeldedienst ist momentan nicht verfügbar. Der lokale Fototest bleibt nutzbar.';
   }
 }
+// A one-shot, tab-local cue also survives the external IServ login redirect.
+let leavingLanding = false;
+async function enterFromLanding(href) {
+  if (leavingLanding) return;
+  leavingLanding = true;
+  try {
+    sessionStorage.setItem(entryCue, String(Date.now()));
+  } catch {
+    // Navigation still works when browser storage is unavailable.
+  }
+  const fade = $('landing').animate([{ opacity: 1 }, { opacity: 0 }], {
+    duration: 240,
+    fill: 'forwards',
+  });
+  window.addEventListener(
+    'pageshow',
+    () => {
+      fade.cancel();
+      leavingLanding = false;
+    },
+    { once: true },
+  );
+  await fade.finished.catch(() => {});
+  location.href = href;
+}
+$('landing-login').addEventListener('click', (event) => {
+  if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  void enterFromLanding(event.currentTarget.href);
+});
+function animateClassEntrance() {
+  let timestamp;
+  try {
+    timestamp = Number(sessionStorage.getItem(entryCue));
+    sessionStorage.removeItem(entryCue);
+  } catch {
+    return;
+  }
+  if (landingPage || adminPage || !timestamp || Date.now() - timestamp > 600000) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    $('app-main').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160 });
+    return;
+  }
+  const grid = $('grid');
+  const bounds = grid.getBoundingClientRect();
+  const centerX = bounds.left + bounds.width / 2;
+  const centerY =
+    bounds.top + Math.min(bounds.height, Math.max(240, innerHeight - bounds.top - 40)) / 2;
+  // Measure every destination before starting transforms, so the stack shares one origin.
+  const cards = [...grid.children].map((card) => ({ card, rect: card.getBoundingClientRect() }));
+  const stackWidth = Math.min(380, bounds.width * 0.5, Math.max(180, innerHeight - 120) * 0.4);
+  const travel = Math.min(150, Math.max(12, (bounds.width - stackWidth * 1.35 - 80) / 2));
+  const smooth = 'cubic-bezier(.45,0,.55,1)';
+  const animations = cards.map(({ card, rect }, index) => {
+    const angle = ((index * 7) % 21) - 10;
+    const x = centerX - rect.left - rect.width / 2 + ((index % 5) - 2) * 16;
+    const y = centerY - rect.top - rect.height / 2 + ((index % 3) - 1) * 10;
+    const scale = Math.max(1, Math.min(2.8, stackWidth / rect.width));
+    const stack = `translate(${x}px, ${y}px) rotate(${angle}deg) scale(${scale})`;
+    const direction = index % 2 ? 1 : -1;
+    const shuffled = `translate(${x + direction * travel}px, ${y - direction * 18}px) rotate(${angle + direction * 12}deg) scale(${scale})`;
+    return card.animate(
+      [
+        { opacity: 1, transform: stack },
+        { opacity: 1, transform: stack, offset: 0.06, easing: smooth },
+        { opacity: 1, transform: shuffled, offset: 0.24, easing: smooth },
+        { opacity: 1, transform: stack, offset: 0.42, easing: 'cubic-bezier(.45,0,.3,1)' },
+        { opacity: 1, transform: 'translate(0, -3px) rotate(0deg) scale(1.015)', offset: 0.94 },
+        { opacity: 1, transform: 'translate(0, 0) rotate(0deg) scale(1)' },
+      ],
+      { id: 'class-entry', duration: 3800, delay: Math.min(index, 23) * 10, fill: 'backwards' },
+    );
+  });
+  // Fade the stack as one surface to avoid translucent faces flashing through each other.
+  animations.push(grid.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300 }));
+  // Interaction or a changed viewport settles the cards immediately in their usable positions.
+  const stop = () => animations.forEach((animation) => animation.cancel());
+  window.addEventListener('resize', stop, { once: true });
+  $('app-main').addEventListener('pointerdown', stop, { once: true });
+  $('app-main').addEventListener('keydown', stop, { once: true });
+  void Promise.allSettled(animations.map((animation) => animation.finished)).then(() => {
+    window.removeEventListener('resize', stop);
+    $('app-main').removeEventListener('pointerdown', stop);
+    $('app-main').removeEventListener('keydown', stop);
+  });
+}
 $('landing-demo').onclick = async (e) => {
   e.preventDefault();
   await initialSession;
@@ -874,7 +962,7 @@ $('landing-demo').onclick = async (e) => {
     return;
   }
   if (!authSession.authenticated) {
-    location.href = './?demo=1';
+    void enterFromLanding('./?demo=1');
     return;
   }
   try {
@@ -884,7 +972,7 @@ $('landing-demo').onclick = async (e) => {
       headers: { 'X-CSRF-Token': authSession.csrf },
     });
     if (!r.ok) throw new Error();
-    location.href = './?demo=1';
+    void enterFromLanding('./?demo=1');
   } catch {
     $('landing-status').textContent = 'Abmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.';
   }

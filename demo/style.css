@@ -2455,6 +2455,16 @@ body.admin-page footer {
   max-width: 420px;
 }
 
+.footer-origin {
+  display: none;
+}
+body.landing-page .footer-origin {
+  display: block;
+  margin-top: 6px;
+  max-width: 580px;
+  font-size: 11px;
+  line-height: 1.5;
+}
 body.landing-page footer {
   width: 100%;
   max-width: 1440px;
