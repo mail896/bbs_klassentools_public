@@ -4207,6 +4207,9 @@ html {
   background: var(--tool-shell);
   z-index: 1;
 }
+#grid[aria-busy='true'] .company-info {
+  visibility: hidden;
+}
 .company-info svg {
   width: 16px;
   height: 16px;
