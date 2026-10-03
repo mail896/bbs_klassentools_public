@@ -765,9 +765,6 @@ h1 #class-total {
   h1 #class-name {
     display: inline;
   }
-}
-
-@media (max-width: 700px) {
   header {
     height: auto;
     min-height: 70px;
@@ -1073,7 +1070,7 @@ footer a {
   flex-shrink: 0;
   width: 100%;
   aspect-ratio: 1;
-  background-image: url('./demo-portraits.png');
+  background-image: url('./demo-portraits.webp');
   background-size: 600% 400%;
   background-repeat: no-repeat;
 }
@@ -1092,9 +1089,7 @@ footer a {
   .class-picker {
     gap: 8px;
   }
-  .class-picker label {
-    width: 100%;
-  }
+  .class-picker label,
   .class-picker select {
     width: 100%;
   }
@@ -2037,9 +2032,7 @@ footer > span {
   color: #ffe343;
 }
 .random-signal[data-phase='locked'],
-.random-signal[data-phase='done'] {
-  color: #ffe343;
-}
+.random-signal[data-phase='done'],
 .random-signal[data-phase='locked'] #signal-label,
 .random-signal[data-phase='done'] #signal-label {
   color: #ffe343;
@@ -3932,9 +3925,7 @@ label[for='learn-mode'] {
   }
   .stage,
   .seat-canvas,
-  .learn-stage {
-    padding: 12px;
-  }
+  .learn-stage,
   #selection-surface,
   .learn-surface {
     padding: 12px;

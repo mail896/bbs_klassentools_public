@@ -1,19 +1,6 @@
-import { paginate } from './admin-ui.mjs?v=af1f701092f9';
-import { createLearningUI, setupLearningAdmin } from './learning-ui.mjs?v=045fe86d9507';
+import { createLearningUI } from './learning-ui.mjs?v=045fe86d9507';
 import { colors, demoPeople } from './demo.mjs?v=9e9fedd7f899';
 import { matchPhotos } from './photo-matching.mjs?v=7aed189788e4';
-import {
-  arrangeSeats,
-  seatDimensions,
-  rotateSeat,
-  moveSeat,
-  snapSeat,
-  compactSeatRoom,
-  seatRoomWidth,
-  seatRoomHeight,
-  seatDisplay,
-} from './seating-layout.mjs?v=8bcf6a38d8cc';
-import { drawSeatExport } from './seating-export.mjs?v=bbf03e43fb17';
 import { shuffle, groupSizes, draw, drawChances } from './logic.mjs?v=ff3b470a050d';
 const $ = (id) => document.getElementById(id);
 const entryCue = 'klassentools.entry';
@@ -80,6 +67,120 @@ $('theme').onchange = () => {
 };
 systemTheme.addEventListener('change', applyTheme);
 applyTheme();
+let seatingUI = null;
+let seatingLoading = null;
+let seatingOpenRequest = 0;
+document.querySelector('.main-tabs').addEventListener('click', (event) => {
+  if (event.target.closest('button')?.id !== 'seat-tab') seatingOpenRequest++;
+});
+$('seat-tab').onclick = async () => {
+  if (running || classLoading) return;
+  const request = ++seatingOpenRequest;
+  try {
+    seatingLoading ??= import('./seating-ui.mjs?v=1f4b5f4453f5').then(({ createSeatingUI }) => {
+      seatingUI = createSeatingUI(seatingContext);
+      return seatingUI;
+    });
+    const ui = await seatingLoading;
+    if (request === seatingOpenRequest && !running && !classLoading) ui.open();
+  } catch {
+    seatingLoading = null;
+    $('bottom-hint').textContent =
+      'Der Sitzplan konnte nicht geladen werden. Bitte versuchen Sie es erneut.';
+  }
+};
+const seatingContext = {
+  get absent() {
+    return absent;
+  },
+  get authSession() {
+    return authSession;
+  },
+  get classLoading() {
+    return classLoading;
+  },
+  get companyButton() {
+    return companyButton;
+  },
+  get companyCaption() {
+    return companyCaption;
+  },
+  get escapeHTML() {
+    return escapeHTML;
+  },
+  get face() {
+    return face;
+  },
+  get leaveLearning() {
+    return leaveLearning;
+  },
+  get localClass() {
+    return localClass;
+  },
+  get mode() {
+    return mode;
+  },
+  set mode(value) {
+    mode = value;
+  },
+  get people() {
+    return people;
+  },
+  get random() {
+    return random;
+  },
+  get result() {
+    return result;
+  },
+  set result(value) {
+    result = value;
+  },
+  get running() {
+    return running;
+  },
+  get selectedClass() {
+    return selectedClass;
+  },
+  get shuffle() {
+    return shuffle;
+  },
+};
+let adminUI = null;
+let adminLoading = null;
+async function openAdministration() {
+  adminLoading ??= import('./administration-ui.mjs?v=82c79701758d')
+    .then(({ createAdministrationUI }) => {
+      adminUI = createAdministrationUI(adminContext);
+      return adminUI;
+    })
+    .catch((error) => {
+      adminLoading = null;
+      throw error;
+    });
+  const ui = await adminLoading;
+  if (authSession?.admin) await ui.open();
+}
+const adminContext = {
+  get adminPage() {
+    return adminPage;
+  },
+  get authSession() {
+    return authSession;
+  },
+  get escapeHTML() {
+    return escapeHTML;
+  },
+  get learningUI() {
+    return learningUI;
+  },
+  get loadClasses() {
+    return loadClasses;
+  },
+};
+$('admin-open').onclick = () => {
+  location.href = './?admin=classes';
+};
+
 let learningUI = null;
 let people = demoPeople();
 let localClass = false;
@@ -89,8 +190,7 @@ let selectedClass = '',
 let pendingPhotos = null,
   photoState = { enabled: false, revision: null, total: 0 },
   photoBusy = false,
-  cropState = null,
-  auditCursor = null;
+  cropState = null;
 function clearPhotoReview() {
   pendingPhotos = null;
   $('photo-review').replaceChildren();
@@ -121,7 +221,7 @@ const face = (p) =>
     ? `<img src="${p.photo}" alt="">`
     : Number.isInteger(p.demoPortrait)
       ? `<span class="demo-portrait" aria-hidden="true" style="background-position:${(p.demoPortrait % 6) * 20}% ${(Math.floor(p.demoPortrait / 6) * 100) / 3}%"></span>`
-      : `<img class="avatar-placeholder" src="./avatar-placeholder.png" alt="Kein Foto vorhanden">`;
+      : `<img class="avatar-placeholder" src="./avatar-placeholder.webp" alt="Kein Foto vorhanden">`;
 const key = 'klassentools.demo.v1';
 let saved = {};
 try {
@@ -130,14 +230,6 @@ try {
 let seen = Array.isArray(saved.seen)
   ? saved.seen.filter((id) => Number.isInteger(id) && id >= 0 && id < 24)
   : [];
-const seatingPlans = new Map();
-let seatSelection = null,
-  seatDrag = null,
-  seatFit = false;
-let seatExportEpoch = 0,
-  seatExportTimer,
-  seatExportWork = null,
-  seatExportReady = null;
 let absent = new Set(),
   mode = 'pick',
   result = null,
@@ -243,7 +335,7 @@ for (const input of document.querySelectorAll('[data-show-companies]'))
     for (const other of document.querySelectorAll('[data-show-companies]'))
       other.checked = input.checked;
     closeCompanyTip();
-    invalidateSeatExport();
+    seatingUI?.invalidateExport();
     requestAnimationFrame(fitFullscreenGrid);
   };
 function applyCompanies(data) {
@@ -251,7 +343,7 @@ function applyCompanies(data) {
     p.companyInfo = data.companies.find((c) => c.id === data.assignments[p.memberId]) || null;
   closeCompanyTip();
   render();
-  invalidateSeatExport();
+  seatingUI?.invalidateExport();
 }
 function card(p) {
   return `<div class="person-shell"><button class="person ${absent.has(p.id) ? 'absent' : ''}" data-id="${p.id}" aria-pressed="${absent.has(p.id)}" aria-label="${escapeHTML(p.first)} ${escapeHTML(p.last)}: ${absent.has(p.id) ? 'abwesend, wieder aufnehmen' : 'anwesend, ausschließen'}"><div class="portrait" style="--portrait:${p.color}">${face(p)}${absent.has(p.id) ? '<span class="badge">abwesend</span>' : ''}</div><div class="person-name"><span class="first">${escapeHTML(p.first)}</span><span class="last">${escapeHTML(p.last)}</span>${companyCaption(p)}</div></button>${companyButton(p)}</div>`;
@@ -338,7 +430,7 @@ function render() {
   $('stage-title').textContent = 'Bereit für die nächste Runde';
   $('bottom-hint').textContent = '';
   update();
-  if (mode === 'seating') renderSeating();
+  if (mode === 'seating') seatingUI?.render();
   requestAnimationFrame(fitFullscreenGrid);
 }
 function clearResult() {
@@ -816,10 +908,10 @@ async function loadSession() {
     authSession = await response.json();
     $('logout').hidden = !authSession.authenticated;
     $('admin-open').hidden = !authSession.admin || adminPage;
-    if (!authSession.admin) clearAdmin();
+    if (!authSession.admin) adminUI?.reset();
     if (adminPage) {
       $('admin-access').hidden = !!authSession.admin;
-      if (authSession.admin && $('admin-dialog').hidden) await openAdminPage();
+      if (authSession.admin && $('admin-dialog').hidden) await openAdministration();
     }
     document
       .querySelector('.account-bar')
@@ -840,7 +932,7 @@ async function loadSession() {
     $('auth-roles').hidden = true;
     if (!authSession.authenticated) {
       classMembers.clear();
-      seatingPlans.clear();
+      seatingUI?.reset();
       $('auth-status').textContent = 'Nicht angemeldet · Demo und lokaler Fototest verfügbar.';
       return;
     }
@@ -858,9 +950,9 @@ async function loadSession() {
     }
   } catch {
     classMembers.clear();
-    seatingPlans.clear();
+    seatingUI?.reset();
     $('admin-open').hidden = true;
-    clearAdmin();
+    adminUI?.reset();
     if (adminPage) $('admin-access').hidden = false;
     if (selectedClass) resetDemo();
     $('iserv-classes').hidden = true;
@@ -1034,8 +1126,7 @@ initialSession.then(() => {
 
 function resetDemo() {
   learningUI?.reset();
-  seatSelection = null;
-  seatDrag = null;
+  seatingUI?.clearSelection();
   $('seat-tables').replaceChildren();
   $('seat-unplaced').replaceChildren();
   classLoading = false;
@@ -1108,7 +1199,7 @@ async function openClass() {
   try {
     if (authSession?.expiresAt && Date.now() >= authSession.expiresAt) {
       classMembers.clear();
-      seatingPlans.clear();
+      seatingUI?.reset();
       throw new Error('Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.');
     }
     let data = classMembers.get(id);
@@ -1251,204 +1342,6 @@ const presentationObserver = new ResizeObserver(() => {
 });
 for (const el of document.querySelectorAll('header,footer,.class-heading,.stage-top'))
   presentationObserver.observe(el);
-
-let adminState = null,
-  adminBusy = false,
-  adminRequest = 0;
-function adminDirty() {
-  return adminState && [...adminState.selected].sort().join(',') !== adminState.original;
-}
-let learningAdmin,
-  adminGroupPage = 0;
-function clearAdmin() {
-  learningAdmin?.reset();
-  adminGroupPage = 0;
-  for (const name of ['companies', 'learning']) $('admin-' + name + '-panel').replaceChildren();
-  adminRequest++;
-  adminState = null;
-  adminBusy = false;
-  $('admin-dialog').hidden = true;
-  clearAudit();
-  usageRequest++;
-  $('usage-content').replaceChildren();
-  $('admin-groups').replaceChildren();
-  $('admin-search').value = '';
-  $('admin-count').textContent = '';
-  $('admin-status').textContent = '';
-}
-function renderAdmin() {
-  const focused = document.activeElement?.dataset?.groupId;
-  const query = $('admin-search').value.trim().toLocaleLowerCase('de');
-  const rows = (adminState?.groups || []).filter(
-    (g) =>
-      (!$('admin-only-selected').checked || adminState.selected.has(g.id)) &&
-      `${g.name} ${g.account}`.toLocaleLowerCase('de').includes(query),
-  );
-  paginate(
-    $('admin-groups'),
-    rows,
-    20,
-    (pageRows) =>
-      pageRows
-        .map(
-          (g) =>
-            `<label class="admin-group"><input type="checkbox" data-group-id="${escapeHTML(g.id)}" ${adminState.selected.has(g.id) ? 'checked' : ''} ${adminBusy ? 'disabled' : ''}><span><strong>${escapeHTML(g.name)}</strong><small>${escapeHTML(g.account)}</small></span></label>`,
-        )
-        .join(''),
-    'Gruppen',
-    adminGroupPage,
-    (page) => {
-      adminGroupPage = page;
-    },
-  );
-  $('admin-count').textContent = adminState
-    ? `${adminState.selected.size} als Klasse ausgewählt · ${rows.length} passende Gruppen`
-    : '';
-  $('admin-audit-tab').disabled = adminBusy || !adminState;
-  $('admin-save').disabled = adminBusy || !adminDirty();
-  $('admin-reload').disabled = adminBusy;
-  if (focused)
-    [...$('admin-groups').querySelectorAll('input')]
-      .find((el) => el.dataset.groupId === focused)
-      ?.focus();
-}
-async function fetchAdmin() {
-  adminGroupPage = 0;
-  const request = ++adminRequest;
-  adminBusy = true;
-  renderAdmin();
-  $('admin-status').textContent = 'IServ-Gruppen werden geladen …';
-  try {
-    const r = await fetch('./api/admin/classes', { credentials: 'same-origin', cache: 'no-store' }),
-      data = await r.json();
-    if (request !== adminRequest) return;
-    if (!r.ok) throw new Error(data.error || 'Gruppen konnten nicht geladen werden.');
-    const known = new Set(data.groups.map((g) => g.id));
-    const missing = data.selected
-      .filter((id) => !known.has(id))
-      .map((id) => ({ id, name: 'Nicht mehr in IServ verfügbar', account: id }));
-    adminState = {
-      groups: [...data.groups, ...missing],
-      selected: new Set(data.selected),
-      original: [...data.selected].sort().join(','),
-      revision: data.revision,
-    };
-    $('admin-status').textContent = 'Auswahl prüfen und Änderungen speichern.';
-  } catch (e) {
-    if (request !== adminRequest) return;
-    $('admin-status').textContent = e.message;
-  } finally {
-    if (request === adminRequest) {
-      adminBusy = false;
-      renderAdmin();
-    }
-  }
-}
-async function openAdminPage() {
-  const initial = new URL(location.href).searchParams.get('admin');
-  setAdminPanel('classes');
-  $('admin-dialog').hidden = false;
-  $('admin-search').value = '';
-  $('admin-only-selected').checked = false;
-  await fetchAdmin();
-  if (!authSession?.admin) return;
-  if (initial === 'usage') $('admin-usage-tab').click();
-  else if (['audit', 'companies', 'learning'].includes(initial) && adminState)
-    $('admin-' + initial + '-tab').click();
-}
-$('admin-open').onclick = () => {
-  location.href = './?admin=classes';
-};
-function leaveAdmin(e) {
-  if (adminBusy || (adminDirty() && !confirm('Nicht gespeicherte Änderungen verwerfen?'))) {
-    e.preventDefault();
-    return false;
-  }
-  return true;
-}
-$('admin-back').onclick = leaveAdmin;
-window.addEventListener('beforeunload', (e) => {
-  if (adminPage && (adminBusy || adminDirty())) {
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
-$('admin-search').oninput = $('admin-only-selected').onchange = () => {
-  adminGroupPage = 0;
-  renderAdmin();
-};
-$('admin-groups').onchange = (e) => {
-  const id = e.target.dataset.groupId;
-  if (!id || !adminState || adminBusy) return;
-  e.target.checked ? adminState.selected.add(id) : adminState.selected.delete(id);
-  renderAdmin();
-};
-$('admin-reload').onclick = () => {
-  if (!adminDirty() || confirm('Nicht gespeicherte Änderungen verwerfen und Gruppen neu laden?'))
-    fetchAdmin();
-};
-$('admin-dialog').querySelector('form').onkeydown = (e) => {
-  if (e.key === 'Enter' && !e.isComposing && e.target.matches('input[type=search]')) {
-    e.preventDefault();
-    e.currentTarget.requestSubmit();
-  }
-};
-$('admin-dialog').querySelector('form').onsubmit = (e) => {
-  e.preventDefault();
-  if (!$('admin-audit-panel').hidden) {
-    clearTimeout(auditSearchTimer);
-    loadPhotoAudit();
-  } else if (!$('admin-learning-panel').hidden) $('learn-audit-load')?.click();
-};
-for (const button of $('admin-dialog').querySelectorAll('[data-admin-back]')) {
-  button.onclick = (e) => {
-    if (leaveAdmin(e)) location.href = './?app=1';
-  };
-}
-$('admin-save').onclick = async () => {
-  if (!adminState || adminBusy || !authSession?.csrf) return;
-  if (
-    !adminState.selected.size &&
-    !confirm('Keine Klasse freigeben? Lehrkräfte können dann nur den lokalen Modus nutzen.')
-  )
-    return;
-  const request = ++adminRequest;
-  adminBusy = true;
-  renderAdmin();
-  $('admin-status').textContent = 'Auswahl wird gespeichert …';
-  try {
-    const r = await fetch('./api/admin/classes', {
-        method: 'PUT',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': authSession.csrf },
-        body: JSON.stringify({ selected: [...adminState.selected], revision: adminState.revision }),
-      }),
-      data = await r.json();
-    if (request !== adminRequest) return;
-    if (!r.ok) throw new Error(data.error || 'Speichern fehlgeschlagen.');
-    adminState.selected = new Set(data.selected);
-    adminState.original = [...data.selected].sort().join(',');
-    adminState.revision = data.revision;
-    let notice = 'Klassenfreigaben gespeichert.';
-    if (!adminPage)
-      try {
-        await loadClasses();
-      } catch {
-        notice =
-          'Gespeichert. Bitte laden Sie die Hauptseite neu, um Ihre Klassen zu aktualisieren.';
-      }
-    if (request !== adminRequest) return;
-    $('class-status').textContent = notice;
-    $('admin-status').textContent = notice;
-  } catch (e) {
-    if (request === adminRequest) $('admin-status').textContent = e.message;
-  } finally {
-    if (request === adminRequest) {
-      adminBusy = false;
-      renderAdmin();
-    }
-  }
-};
 
 $('apply-photos').onclick = async () => {
   if (photoBusy) return;
@@ -1875,7 +1768,7 @@ async function photoRequest(method, body, suffix = 'photos') {
   if (!response.ok) {
     if (request === classRequest && (response.status === 401 || response.status === 403)) {
       classMembers.clear();
-      seatingPlans.clear();
+      seatingUI?.reset();
       resetDemo();
       $('management').close();
     }
@@ -2005,1237 +1898,6 @@ async function deletePhotos(all) {
 }
 $('delete-selected-photos').onclick = () => deletePhotos(false);
 $('delete-all-photos').onclick = () => deletePhotos(true);
-let auditRequest = 0;
-let auditPages = [null],
-  auditPage = 0;
-function clearAudit() {
-  clearTimeout(auditSearchTimer);
-  auditRequest++;
-  auditCursor = null;
-  auditPages = [null];
-  auditPage = 0;
-  $('previous-photo-audit').disabled = true;
-  $('photo-audit-page').textContent = '';
-  $('photo-audit').replaceChildren();
-  $('more-photo-audit').hidden = true;
-  $('audit-status').textContent = '';
-}
-function setAdminPanel(panel) {
-  clearAudit();
-  usageRequest++;
-  learningAdmin?.reset();
-  for (const name of ['classes', 'audit', 'usage', 'companies', 'learning']) {
-    $('admin-' + name + '-panel').hidden = name !== panel;
-    $('admin-' + name + '-tab').setAttribute('aria-pressed', String(name === panel));
-  }
-  if (adminPage) history.replaceState(null, '', '?admin=' + panel);
-}
-$('admin-classes-tab').onclick = () => setAdminPanel('classes');
-$('admin-audit-tab').onclick = () => {
-  setAdminPanel('audit');
-  $('audit-class-search').value = '';
-  $('audit-query').value = '';
-  $('audit-active').checked = true;
-  renderAuditClasses();
-  loadPhotoAudit();
-};
-async function loadPhotoAudit(direction = 0) {
-  const request = ++auditRequest;
-  $('more-photo-audit').disabled = true;
-  $('previous-photo-audit').disabled = true;
-  const nextPage = direction ? auditPage + direction : 0;
-  const cursor = direction === 1 ? auditCursor : direction === -1 ? auditPages[nextPage] : null;
-  if (!direction) {
-    auditPages = [null];
-    auditPage = 0;
-    $('photo-audit').replaceChildren();
-    auditCursor = null;
-    $('more-photo-audit').hidden = true;
-  }
-  $('audit-status').textContent = 'Änderungsverlauf wird geladen …';
-  const params = new URLSearchParams({
-    active: $('audit-active').checked ? '1' : '0',
-    q: $('audit-query').value.trim(),
-  });
-  if ($('audit-class').value) params.set('group', $('audit-class').value);
-  if (cursor) params.set('before', cursor);
-  try {
-    const response = await fetch('./api/admin/audit?' + params, {
-        credentials: 'same-origin',
-        cache: 'no-store',
-      }),
-      data = await response.json();
-    if (request !== auditRequest) return;
-    if (!response.ok)
-      throw new Error(data.error || 'Änderungsverlauf konnte nicht geladen werden.');
-    auditPage = nextPage;
-    auditPages[auditPage] = cursor;
-    $('photo-audit').replaceChildren();
-    for (const entry of data.entries) {
-      const p = document.createElement('p');
-      const action =
-        {
-          upload: 'Foto hinzugefügt',
-          replace: 'Foto ersetzt',
-          delete: 'Foto gelöscht',
-          delete_all: 'Foto bei Klassenlöschung entfernt',
-          seat_save: 'Sitzplan gespeichert',
-          seat_delete: 'Sitzplan gelöscht',
-        }[entry.action] || entry.action;
-      const group = adminState?.groups.find((g) => g.id === entry.class_id)?.name || entry.class_id;
-      p.textContent = `${new Date(entry.time).toLocaleString('de-DE')} · ${group} · ${entry.actor_name} · ${action}: ${entry.member_name} (Stand ${entry.revision})`;
-      $('photo-audit').append(p);
-    }
-    auditCursor = data.next;
-    $('more-photo-audit').hidden = false;
-    $('photo-audit-page').textContent = `Seite ${auditPage + 1}`;
-    $('audit-status').textContent = $('photo-audit').children.length
-      ? `${$('photo-audit').children.length} Einträge angezeigt`
-      : $('audit-query').value.trim() || $('audit-class').value
-        ? 'Keine Änderungen für diese Filter gefunden.'
-        : 'Noch keine Änderungen.';
-  } catch (e) {
-    if (request === auditRequest) $('audit-status').textContent = e.message;
-  } finally {
-    if (request === auditRequest) {
-      $('more-photo-audit').disabled = !auditCursor;
-      $('previous-photo-audit').disabled = auditPage === 0;
-    }
-  }
-}
-function renderAuditClasses() {
-  const current = $('audit-class').value,
-    q = $('audit-class-search').value.trim().toLocaleLowerCase('de');
-  const groups = (adminState?.groups || []).filter(
-    (g) =>
-      (!$('audit-active').checked || adminState.original.split(',').includes(g.id)) &&
-      `${g.name} ${g.account}`.toLocaleLowerCase('de').includes(q),
-  );
-  $('audit-class').replaceChildren(
-    new Option($('audit-active').checked ? 'Alle freigegebenen Klassen' : 'Alle Klassen', ''),
-    ...groups.map((g) => new Option(g.name, g.id)),
-  );
-  if (groups.some((g) => g.id === current)) $('audit-class').value = current;
-}
-let auditSearchTimer;
-$('audit-class-search').oninput = () => {
-  const previous = $('audit-class').value;
-  renderAuditClasses();
-  if (previous !== $('audit-class').value) loadPhotoAudit();
-};
-$('audit-active').onchange = () => {
-  renderAuditClasses();
-  loadPhotoAudit();
-};
-$('audit-query').oninput = () => {
-  clearAudit();
-  auditSearchTimer = setTimeout(() => loadPhotoAudit(), 250);
-};
-$('audit-class').onchange = () => loadPhotoAudit();
-$('audit-search-button').onclick = () => {
-  clearTimeout(auditSearchTimer);
-  loadPhotoAudit();
-};
-$('more-photo-audit').onclick = () => loadPhotoAudit(1);
-$('previous-photo-audit').onclick = () => loadPhotoAudit(-1);
-
-let usageRequest = 0;
-const usageLabels = {
-  view: 'Aufruf',
-  class_open: 'Klasse geöffnet',
-  pick: 'Einzelauswahl',
-  teams: 'Teams gebildet',
-  local_import: 'Lokaler Fotoimport',
-  photo_save: 'Fotos gespeichert',
-  photo_delete: 'Fotos gelöscht',
-};
-function usageTable(title, heads, rows) {
-  const section = document.createElement('section'),
-    heading = document.createElement('h3'),
-    wrap = document.createElement('div'),
-    table = document.createElement('table');
-  heading.textContent = title;
-  wrap.className = 'usage-table';
-  const header = table.createTHead().insertRow();
-  for (const label of heads) {
-    const th = document.createElement('th');
-    th.textContent = label;
-    header.append(th);
-  }
-  const body = table.createTBody();
-  const fill = (pageRows) => {
-    body.replaceChildren();
-    for (const values of pageRows) {
-      const tr = body.insertRow();
-      for (const value of values) tr.insertCell().textContent = value ?? 0;
-    }
-    if (!pageRows.length) {
-      const cell = body.insertRow().insertCell();
-      cell.colSpan = heads.length;
-      cell.textContent = 'Noch keine Nutzung im gewählten Zeitraum.';
-    }
-  };
-  wrap.append(table);
-  section.append(heading);
-  if (rows.length > 20) {
-    const pages = document.createElement('div');
-    paginate(
-      pages,
-      rows,
-      20,
-      (pageRows, content) => {
-        fill(pageRows);
-        content.append(wrap);
-      },
-      'Einträge',
-    );
-    section.append(pages);
-  } else {
-    fill(rows);
-    section.append(wrap);
-  }
-  return section;
-}
-async function loadUsage() {
-  const request = ++usageRequest;
-  $('usage-status').textContent = 'Statistik wird geladen …';
-  $('usage-content').replaceChildren();
-  try {
-    const response = await fetch('./api/admin/usage?days=' + $('usage-days').value, {
-        credentials: 'same-origin',
-        cache: 'no-store',
-      }),
-      data = await response.json();
-    if (request !== usageRequest) return;
-    if (!response.ok) throw new Error(data.error || 'Statistik nicht verfügbar.');
-    const total = data.totals,
-      context = (r) =>
-        r.context === 'iserv'
-          ? r.name || r.class_name
-          : r.context === 'local'
-            ? 'Lokaler Fototest'
-            : 'DEMO-Klasse';
-    $('usage-status').textContent =
-      `${total.views || 0} Aufrufe · ${total.sessions} Sitzungen · ${total.teachers} Lehrkräfte · ${total.picks || 0} Einzelauswahlen · ${total.teams || 0} Teambildungen`;
-    $('usage-content').append(
-      usageTable(
-        'Anmeldung',
-        [
-          'Zugang',
-          'Sitzungen',
-          'Aufrufe',
-          'Lokale Importe',
-          'Lokal geladene Fotos',
-          'Speichervorgänge',
-        ],
-        data.access.map((r) => [
-          r.access === 'teacher' ? 'Mit IServ' : 'Ohne Anmeldung',
-          r.sessions,
-          r.views,
-          r.imports,
-          r.photos,
-          r.uploads,
-        ]),
-      ),
-      usageTable(
-        'Herkunft',
-        ['Netz', 'Sitzungen', 'Aufrufe'],
-        data.networks.map((r) => [
-          {
-            school: 'Schulnetz',
-            external: 'Außerhalb',
-            unknown: 'Unbekannt / noch nicht konfiguriert',
-          }[r.network],
-          r.sessions,
-          r.views,
-        ]),
-      ),
-      usageTable(
-        'Lehrkräfte',
-        ['Name', 'Sitzungen', 'Aufrufe', 'Auswahlen', 'Teams', 'Lokale Importe', 'Zuletzt'],
-        data.teachers.map((r) => [
-          r.name,
-          r.sessions,
-          r.views,
-          r.picks,
-          r.teams,
-          r.imports,
-          new Date(r.last).toLocaleString('de-DE'),
-        ]),
-      ),
-      usageTable(
-        'Lehrkräfte je Klasse',
-        ['Lehrkraft', 'Klasse', 'Geöffnet', 'Auswahlen', 'Teams'],
-        data.teacherClasses.map((r) => [r.teacher, r.name, r.opens, r.picks, r.teams]),
-      ),
-      usageTable(
-        'Klassen und Modi',
-        ['Klasse / Modus', 'Sitzungen', 'Geöffnet', 'Auswahlen', 'Teams'],
-        data.classes.map((r) => [context(r), r.sessions, r.opens, r.picks, r.teams]),
-      ),
-      usageTable(
-        'Letzte 100 Aktivitäten',
-        ['Zeit', 'Nutzung durch', 'Aktion', 'Klasse / Modus', 'Anzahl'],
-        data.recent.map((r) => [
-          new Date(r.time).toLocaleString('de-DE'),
-          r.actor_name || 'Ohne Anmeldung',
-          usageLabels[r.action],
-          context(r),
-          r.amount || '–',
-        ]),
-      ),
-    );
-  } catch (e) {
-    if (request === usageRequest) $('usage-status').textContent = e.message;
-  }
-}
-$('admin-usage-tab').onclick = () => {
-  setAdminPanel('usage');
-  loadUsage();
-};
-$('usage-days').onchange = loadUsage;
-$('usage-reload').onclick = loadUsage;
-
-// Seating coordinates are stored in room orientation; display is from the teacher’s side.
-function seatContext() {
-  const key = selectedClass || (localClass ? 'local' : 'demo');
-  const signature = people.map((p) => p.memberId || `${p.id}:${p.first}:${p.last}`).join('|');
-  let entry = seatingPlans.get(key);
-  if (!entry || entry.signature !== signature) {
-    const plan = {
-      size: 2,
-      layout: 'u',
-      rows: 3,
-      teacher: { x: 500, y: 80 },
-      tables: [],
-      pinned: [],
-      saved: null,
-    };
-    plan.tables = Array.from({ length: Math.ceil(people.length / 2) }, (_, i) => ({
-      x: 0,
-      y: 0,
-      slots: [people[i * 2]?.id ?? null, people[i * 2 + 1]?.id ?? null],
-    }));
-    arrangeSeats(plan, 'u');
-    entry = {
-      signature,
-      shared: plan,
-      initial: structuredClone(plan),
-      private: null,
-      view: 'shared',
-    };
-    seatingPlans.set(key, entry);
-    seatSelection = null;
-  }
-  return entry;
-}
-function seatPlan() {
-  const e = seatContext();
-  return e[e.view];
-}
-function seatLimit(plan) {
-  return Math.ceil(people.length / plan.size) + 4;
-}
-function seatDesk(key) {
-  return key === 'teacher' ? seatPlan().teacher : seatPlan().tables[Number(key)];
-}
-function seatNotify(text) {
-  $('seat-status').textContent = text;
-}
-function seatPerson(id) {
-  return people.find((p) => p.id === id);
-}
-function seatTile(id, table, index) {
-  const p = seatPerson(id),
-    plan = seatPlan(),
-    chosen = id !== null && seatSelection === id,
-    locked = plan.pinned.includes(id);
-  const label = p ? `${p.first} ${p.last}${absent.has(id) ? ' · abwesend' : ''}` : 'Freier Platz';
-  return `<div class="seat-place ${chosen ? 'seat-selected' : ''} ${p && absent.has(id) ? 'seat-absent' : ''}"><button class="seat-person" ${p ? 'draggable="true"' : ''} data-seat-person="${id ?? ''}" data-seat-table="${table}" data-seat-index="${index}" aria-label="${escapeHTML(label)}" aria-pressed="${chosen}">${p ? `<span class="seat-face">${face(p)}</span><span class="seat-name">${escapeHTML(p.first)}<small>${escapeHTML(p.last)}</small>${companyCaption(p)}</span>` : '<span class="seat-empty">＋<small>Freier Platz</small></span>'}</button>${companyButton(p)}${p ? `<button class="seat-pin" data-seat-pin="${id}" aria-pressed="${locked}" title="${locked ? 'Fixierung lösen' : 'Bei Zufallsverteilung auf diesem Platz lassen'}">${locked ? 'Fixiert' : 'Fixieren'}</button>` : ''}</div>`;
-}
-let seatDragging = false;
-function fitSeatRoom() {
-  if (seatDragging) return;
-  const room = $('seat-room'),
-    view = $('seat-viewport');
-  if (!view || view.hidden || mode !== 'seating' || !room.offsetWidth || !view.clientWidth) return;
-  const available = Math.max(
-    220,
-    innerHeight - Math.max(16, view.getBoundingClientRect().top) - 28,
-  );
-  const scale = seatFit
-    ? Math.min(1, (view.clientWidth - 2) / room.offsetWidth, available / room.offsetHeight)
-    : Math.min(1, Math.max(0.65, (view.clientWidth - 2) / room.offsetWidth));
-  room.style.top = '0px';
-  room.style.transform = `scale(${scale})`;
-  room.style.left = Math.max(0, (view.clientWidth - room.offsetWidth * scale) / 2) + 'px';
-  view.style.height = room.offsetHeight * scale + 2 + 'px';
-  view.classList.toggle('seat-overview', seatFit);
-  if (seatFit) {
-    view.scrollTop = 0;
-    view.scrollLeft = 0;
-  }
-  $('seat-fit').setAttribute('aria-pressed', String(seatFit));
-  $('seat-detail').setAttribute('aria-pressed', String(!seatFit));
-  $('seat-zoom').textContent = Math.round(scale * 100) + ' %';
-}
-function renderSeating() {
-  invalidateSeatExport();
-  const current = seatContext();
-  if (selectedClass && !current.remote && !current.busy && !current.error && !classLoading) {
-    loadSeatPlans();
-    return;
-  }
-  for (const control of $('seating-panel').querySelectorAll(
-    '.seat-toolbar button,.seat-toolbar select,.seat-view-tools button',
-  ))
-    control.disabled = classLoading || !!current.busy;
-  if (classLoading) {
-    $('seat-tables').replaceChildren();
-    $('seat-unplaced').replaceChildren();
-    $('seat-count').textContent = '';
-    seatNotify('Klasse wird geladen …');
-    return;
-  }
-  const entry = seatContext(),
-    plan = seatPlan();
-  plan.room = { width: seatRoomWidth(plan), height: seatRoomHeight(plan) };
-  $('seat-storage-mode').textContent = selectedClass ? 'IServ-Klasse' : 'Lokaler Entwurf';
-  $('seat-storage-note').textContent = selectedClass
-    ? 'Gemeinsame Pläne stehen den berechtigten Lehrkräften dieser Klasse zur Verfügung. Private Pläne sind nur für Ihr Konto sichtbar. Speichern und Löschen werden für die Administration protokolliert.'
-    : 'DEMO und lokaler Fototest: Entwürfe bleiben nur bis zum Neuladen in diesem Browserfenster.';
-  const options = [new Option(selectedClass ? 'Gemeinsamer Sitzplan' : 'Klassenentwurf', 'shared')];
-  if (selectedClass) {
-    for (const v of entry.meta?.privateVersions || [])
-      options.push(new Option(v.name, v.version === 1 ? 'private' : 'private:' + v.version));
-    if (entry.private && !entry.meta?.private?.plan)
-      options.push(
-        new Option(
-          'Private Kopie · noch nicht gespeichert',
-          entry.meta?.private?.version > 1 ? 'private:' + entry.meta.private.version : 'private',
-        ),
-      );
-  } else options.push(new Option('Meine private Kopie', 'private'));
-  $('seat-plan').replaceChildren(...options);
-  $('seat-save').textContent = selectedClass ? 'Sitzplan speichern' : 'Entwurf merken';
-  $('seat-copy').textContent = selectedClass
-    ? 'Als privaten Sitzplan speichern'
-    : 'Private Kopie anlegen';
-  $('seat-restore').hidden = !!selectedClass;
-  $('seat-reload').hidden = !selectedClass;
-  $('seat-delete').hidden = !selectedClass;
-  const meta = entry.meta?.[entry.view],
-    dirty = entry.remote && JSON.stringify(seatDocument(plan)) !== entry.baselines?.[entry.view];
-  $('seat-save-state').textContent = selectedClass
-    ? entry.busy
-      ? 'Bitte warten …'
-      : entry.error ||
-        (dirty
-          ? 'Ungespeicherte Änderungen. '
-          : meta?.plan
-            ? 'Gespeichert. '
-            : 'Noch kein gespeicherter Plan. ') +
-          (meta?.updatedAt
-            ? 'Stand ' + new Date(meta.updatedAt).toLocaleString('de-DE') + ' · ' + meta.updatedBy
-            : '')
-    : '';
-  $('seat-plan').value =
-    entry.view === 'private' && entry.meta?.private?.version > 1
-      ? 'private:' + entry.meta.private.version
-      : entry.view;
-  if (!selectedClass) $('seat-plan').options[1].disabled = !entry.private;
-  $('seat-new-version').hidden = !selectedClass || entry.view !== 'private';
-  $('seat-new-version').disabled = !entry.remote || !entry.meta?.private?.plan;
-  $('seat-size').value = String(plan.size);
-  $('seat-row-count').value = String(plan.rows || 3);
-  $('seat-row-count').disabled = plan.layout !== 'rows';
-  $('seat-u').setAttribute('aria-pressed', String(plan.layout === 'u'));
-  $('seat-rows').setAttribute('aria-pressed', String(plan.layout === 'rows'));
-  $('seat-restore').disabled = !plan.saved;
-  $('seat-copy').disabled = entry.view === 'private';
-  $('seat-tables').innerHTML = plan.tables
-    .map(
-      (t, i) =>
-        `<section class="seat-table ${t.vertical ? 'seat-vertical' : ''}" style="left:${seatDisplay(t, seatDimensions(t).w, seatDimensions(t).h, plan).x}px;top:${seatDisplay(t, seatDimensions(t).w, seatDimensions(t).h, plan).y}px" aria-label="Tisch ${i + 1}"><div class="seat-desk-tools"><button class="seat-handle" data-seat-desk="${i}" aria-label="Tisch ${i + 1} verschieben; Pfeiltasten zum Bewegen, Umschalt für Feinschritte">⠿ Tisch ${i + 1}</button><button class="seat-rotate" data-seat-rotate="${i}" aria-label="Tisch ${i + 1} drehen" title="${t.vertical ? 'Querformat' : 'Hochkant'}">↻</button></div><div class="seat-places">${t.slots.map((id, j) => seatTile(id, i, j)).join('')}</div></section>`,
-    )
-    .join('');
-  const assigned = new Set(plan.tables.flatMap((t) => t.slots).filter((id) => id !== null));
-  const unplaced = people.filter((p) => !assigned.has(p.id));
-  $('seat-unplaced').innerHTML = unplaced.map((p) => seatTile(p.id, -1, -1)).join('');
-  $('seat-unplaced-count').textContent = String(unplaced.length);
-  $('seat-count').textContent =
-    `${plan.tables.length} Tische · ${plan.tables.length * plan.size} Plätze · ${assigned.size} zugeordnet`;
-  $('seat-unseat').disabled = seatSelection === null;
-  $('seat-remove').disabled = !plan.tables.some((t) => t.slots.every((id) => id === null));
-  $('seat-add').disabled = plan.tables.length >= seatLimit(plan);
-  $('seat-limit').textContent = `Maximal ${seatLimit(plan)} Tische: Bedarf plus 4 Reservetische.`;
-  const teacherPosition = seatDisplay(plan.teacher, 200, 56, plan);
-  $('seat-teacher').style.left = teacherPosition.x + 'px';
-  $('seat-teacher').style.top = teacherPosition.y + 'px';
-  $('seat-room').style.width = seatRoomWidth(plan) + 'px';
-  $('seat-room').style.height = seatRoomHeight(plan) + 'px';
-  if (entry.busy) {
-    for (const el of $('seating-panel').querySelectorAll('button,select')) el.disabled = true;
-  } else {
-    if (selectedClass) $('seat-save').disabled = !entry.remote || !!entry.error;
-    $('seat-reload').disabled = false;
-    $('seat-delete').disabled = !entry.remote || !meta?.plan;
-    $('seat-teacher').disabled = false;
-  }
-  requestAnimationFrame(() => {
-    fitSeatRoom();
-    scheduleSeatExport();
-  });
-}
-function seatMove(id, table, index) {
-  if (seatContext().busy) return;
-  const plan = seatPlan();
-  if (!seatPerson(id)) return;
-  const source = plan.tables.find((t) => t.slots.includes(id)),
-    position = source?.slots.indexOf(id);
-  const target = table >= 0 ? plan.tables[table] : null,
-    other = target?.slots[index] ?? null;
-  if (plan.pinned.includes(id) || (other !== null && plan.pinned.includes(other))) {
-    seatNotify('Bitte zuerst die Fixierung des betroffenen Platzes lösen.');
-    return;
-  }
-  if (target && (!Number.isInteger(index) || index < 0 || index >= plan.size)) return;
-  if (source) source.slots[position] = other;
-  if (target) target.slots[index] = id;
-  seatSelection = null;
-  renderSeating();
-  seatNotify(target ? 'Sitzplatz geändert.' : 'Schüler unter „Noch ohne Platz“ abgelegt.');
-}
-$('seat-tab').onclick = () => {
-  if (running) return;
-  leaveLearning();
-  mode = 'seating';
-  seatFit = false;
-  result = null;
-  document.body.classList.add('seating-mode');
-  $('seating-panel').hidden = false;
-  for (const id of ['pick-tab', 'team-tab', 'seat-tab'])
-    $(id).setAttribute('aria-selected', String(id === 'seat-tab'));
-  renderSeating();
-  if (!seatContext().busy && !seatContext().error)
-    seatNotify(
-      'Tische am Griff verschieben. Schüler ziehen oder erst den Schüler, dann den Zielplatz anklicken.',
-    );
-};
-$('seating-panel').addEventListener('click', (e) => {
-  if (seatContext().busy) return;
-  const rotation = e.target.closest('[data-seat-rotate]');
-  if (rotation) {
-    const plan = seatPlan(),
-      index = Number(rotation.dataset.seatRotate);
-    rotateSeat(plan.tables[index]);
-    renderSeating();
-    $('seat-tables').querySelector(`[data-seat-rotate="${index}"]`).focus({ preventScroll: true });
-    seatNotify('Tisch gedreht. Die Sitzzuordnung bleibt erhalten.');
-    return;
-  }
-  const pin = e.target.closest('[data-seat-pin]');
-  if (pin) {
-    const plan = seatPlan(),
-      id = Number(pin.dataset.seatPin);
-    plan.pinned = plan.pinned.includes(id)
-      ? plan.pinned.filter((x) => x !== id)
-      : [...plan.pinned, id];
-    renderSeating();
-    return;
-  }
-  const button = e.target.closest('[data-seat-person]');
-  if (!button) return;
-  const id = button.dataset.seatPerson === '' ? null : Number(button.dataset.seatPerson);
-  if (seatSelection !== null) {
-    if (id === seatSelection) {
-      seatSelection = null;
-      renderSeating();
-    } else
-      seatMove(seatSelection, Number(button.dataset.seatTable), Number(button.dataset.seatIndex));
-  } else if (id !== null) {
-    seatSelection = id;
-    renderSeating();
-    seatNotify('Jetzt den Zielplatz anklicken – belegte Plätze werden getauscht.');
-  }
-});
-$('seating-panel').addEventListener('dragstart', (e) => {
-  const b = e.target.closest('[data-seat-person]');
-  if (!b || b.dataset.seatPerson === '') return;
-  seatDrag = Number(b.dataset.seatPerson);
-  e.dataTransfer.setData('text/plain', String(seatDrag));
-  e.dataTransfer.effectAllowed = 'move';
-});
-$('seating-panel').addEventListener('dragover', (e) => {
-  if (
-    seatDrag !== null &&
-    (e.target.closest('[data-seat-person]') || e.target.closest('.seat-tray'))
-  )
-    e.preventDefault();
-});
-$('seating-panel').addEventListener('drop', (e) => {
-  if (seatDrag === null) return;
-  const b = e.target.closest('[data-seat-person]');
-  if (!b && !e.target.closest('.seat-tray')) return;
-  e.preventDefault();
-  seatMove(seatDrag, b ? Number(b.dataset.seatTable) : -1, b ? Number(b.dataset.seatIndex) : -1);
-  seatDrag = null;
-});
-$('seating-panel').addEventListener('dragend', () => {
-  seatDrag = null;
-});
-$('seat-unseat').onclick = () => {
-  if (seatSelection !== null) seatMove(seatSelection, -1, -1);
-};
-$('seat-random').onclick = () => {
-  const plan = seatPlan(),
-    fixed = new Set([...plan.pinned, ...absent]);
-  const pool = shuffle(
-    people.filter((p) => !fixed.has(p.id)).map((p) => p.id),
-    random,
-  );
-  for (const t of plan.tables)
-    for (let i = 0; i < t.slots.length; i++)
-      if (!fixed.has(t.slots[i])) t.slots[i] = pool.shift() ?? null;
-  seatSelection = null;
-  renderSeating();
-  seatNotify('Neu verteilt. Fixierte und abwesende Schüler behalten ihren Platz.');
-};
-for (const [id, layout] of [
-  ['seat-u', 'u'],
-  ['seat-rows', 'rows'],
-])
-  $(id).onclick = () => {
-    if (!confirm('Tische neu anordnen? Die Sitzzuordnung bleibt erhalten.')) return;
-    arrangeSeats(seatPlan(), layout);
-    renderSeating();
-    seatNotify(layout === 'u' ? 'U-Form angeordnet.' : 'Tische in Reihen angeordnet.');
-  };
-$('seat-size').onchange = () => {
-  const plan = seatPlan(),
-    size = Number($('seat-size').value);
-  if (
-    !confirm(
-      'Tischart wechseln und neu anordnen? Die Schüler werden übernommen; Fixierungen werden gelöst.',
-    )
-  ) {
-    $('seat-size').value = String(plan.size);
-    $('seat-row-count').value = String(plan.rows || 3);
-    $('seat-row-count').disabled = plan.layout !== 'rows';
-    $('seat-u').setAttribute('aria-pressed', String(plan.layout === 'u'));
-    $('seat-rows').setAttribute('aria-pressed', String(plan.layout === 'rows'));
-    return;
-  }
-  const ids = plan.tables.flatMap((t) => t.slots).filter((id) => id !== null);
-  plan.size = size;
-  plan.pinned = [];
-  plan.tables = Array.from(
-    { length: Math.ceil(Math.max(people.length, ids.length) / size) },
-    (_, i) => ({
-      x: 0,
-      y: 0,
-      slots: Array.from({ length: size }, (_, j) => ids[i * size + j] ?? null),
-    }),
-  );
-  arrangeSeats(plan, plan.layout);
-  renderSeating();
-  seatNotify('Tischart geändert.');
-};
-$('seat-row-count').onchange = () => {
-  const p = seatPlan(),
-    rows = Number($('seat-row-count').value);
-  if (!confirm('Tische in ' + rows + ' Reihen neu anordnen? Die Sitzzuordnung bleibt erhalten.')) {
-    $('seat-row-count').value = String(p.rows || 3);
-    return;
-  }
-  p.rows = rows;
-  arrangeSeats(p, 'rows');
-  renderSeating();
-  seatNotify(rows + ' Tischreihen angeordnet.');
-};
-$('seat-add').onclick = () => {
-  const p = seatPlan();
-  if (p.tables.length >= seatLimit(p)) return;
-  const width = seatRoomWidth(p);
-  const vertical = $('seat-orientation').value === 'vertical';
-  const { w, h } = seatDimensions({ vertical });
-  let spot = null;
-  for (let y = 180; !spot; y += h + 34)
-    for (let x = 40; x + w <= width - 40; x += w + 20) {
-      if (
-        !(
-          x < p.teacher.x + 220 &&
-          x + w + 20 > p.teacher.x &&
-          y < p.teacher.y + 80 &&
-          y + h + 20 > p.teacher.y
-        ) &&
-        !p.tables.some(
-          (t) =>
-            x < t.x + seatDimensions(t).w + 20 &&
-            x + w + 20 > t.x &&
-            y < t.y + seatDimensions(t).h + 20 &&
-            y + h + 20 > t.y,
-        )
-      ) {
-        spot = { x, y };
-        break;
-      }
-    }
-  p.tables.push({ ...spot, vertical, slots: Array(p.size).fill(null) });
-  renderSeating();
-  seatNotify('Tisch auf einer freien Fläche hinzugefügt. Am Griff können Sie ihn verschieben.');
-  requestAnimationFrame(() =>
-    $('seat-tables').lastElementChild.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest',
-      behavior: 'smooth',
-    }),
-  );
-};
-$('seat-remove').onclick = () => {
-  const p = seatPlan();
-  p.tables = p.tables.filter((t) => t.slots.some((id) => id !== null));
-  compactSeatRoom(p);
-  renderSeating();
-  seatNotify('Leere Tische entfernt.');
-};
-$('seat-compact').onclick = () => {
-  compactSeatRoom(seatPlan());
-  renderSeating();
-  seatNotify(
-    'Äußere Leerflächen verkleinert. Tischanordnung unverändert. Bitte speichern Sie den geänderten Plan.',
-  );
-};
-$('seat-copy').onclick = async () => {
-  const e = seatContext();
-  if (e.busy) return;
-  if (
-    e.private &&
-    seatDirty(e) &&
-    !confirm('Ungespeicherte Änderungen am privaten Entwurf ersetzen?')
-  )
-    return;
-  const newVersion = !!e.meta?.private?.plan;
-  e.private = structuredClone(e.shared);
-  e.private.saved = null;
-  e.view = 'private';
-  seatSelection = null;
-  renderSeating();
-  if (selectedClass) {
-    await saveSeatPlan(false, newVersion);
-  } else {
-    seatNotify('Private Kopie angelegt. Änderungen betreffen nur diese Kopie in diesem Fenster.');
-  }
-};
-$('seat-plan').onchange = () => {
-  const entry = seatContext(),
-    value = $('seat-plan').value;
-  if (selectedClass && value.startsWith('private')) {
-    const version = Number(value.split(':')[1] || 1);
-    if (entry.meta?.private?.version !== version) {
-      if (
-        entry.private &&
-        JSON.stringify(seatDocument(entry.private)) !== entry.baselines?.private &&
-        !confirm('Ungespeicherte Änderungen am privaten Plan verwerfen und andere Version laden?')
-      ) {
-        renderSeating();
-        return;
-      }
-      const snapshot = entry.meta.privateVersions.find((v) => v.version === version);
-      if (snapshot) {
-        entry.private = seatDecode(snapshot.plan);
-        entry.meta.private = snapshot;
-        entry.baselines.private = JSON.stringify(seatDocument(entry.private));
-      }
-    }
-  }
-  entry.view = value === 'shared' ? 'shared' : 'private';
-  seatSelection = null;
-  renderSeating();
-  seatNotify('Plan gewechselt.');
-};
-$('seat-save').onclick = () => {
-  if (selectedClass) {
-    saveSeatPlan();
-    return;
-  }
-  const p = seatPlan();
-  p.saved = structuredClone({
-    size: p.size,
-    layout: p.layout,
-    rows: p.rows,
-    teacher: p.teacher,
-    tables: p.tables,
-    pinned: p.pinned,
-  });
-  renderSeating();
-  seatNotify(
-    'Stand in diesem Browserfenster gemerkt. Noch keine dauerhafte oder gemeinsame Speicherung.',
-  );
-};
-$('seat-restore').onclick = () => {
-  const p = seatPlan();
-  if (!p.saved || !confirm('Zum gemerkten Stand zurückkehren?')) return;
-  Object.assign(p, structuredClone(p.saved));
-  seatSelection = null;
-  renderSeating();
-  seatNotify('Gemerkten Stand geladen.');
-};
-$('seat-room').addEventListener('keydown', (e) => {
-  if (seatContext().busy) return;
-  const b = e.target.closest('[data-seat-desk]'),
-    delta = { ArrowLeft: [-20, 0], ArrowRight: [20, 0], ArrowUp: [0, -20], ArrowDown: [0, 20] }[
-      e.key
-    ];
-  if (!b || !delta) return;
-  e.preventDefault();
-  const t = seatDesk(b.dataset.seatDesk);
-  const step = e.shiftKey ? 1 / 20 : 1;
-  moveSeat(seatPlan(), t, t.x - delta[0] * step, t.y - delta[1] * step);
-  renderSeating();
-  $('seat-room').querySelector(`[data-seat-desk="${b.dataset.seatDesk}"]`).focus();
-});
-$('seat-room').addEventListener('pointerdown', (e) => {
-  if (seatContext().busy) return;
-  const b = e.target.closest('[data-seat-desk]');
-  if (!b || e.button !== 0) return;
-  e.preventDefault();
-  const plan = seatPlan(),
-    t = seatDesk(b.dataset.seatDesk),
-    room = $('seat-room');
-  const snapshot = structuredClone(plan);
-  const start = {
-    x: e.clientX,
-    y: e.clientY,
-    tx: t.x,
-    ty: t.y,
-    left: parseFloat(room.style.left) || 0,
-  };
-  const scale = room.getBoundingClientRect().width / room.offsetWidth;
-  seatDragging = true;
-  b.setPointerCapture(e.pointerId);
-  const move = (ev) => {
-    Object.assign(plan.teacher, snapshot.teacher);
-    plan.tables.forEach((table, i) => {
-      table.x = snapshot.tables[i].x;
-      table.y = snapshot.tables[i].y;
-    });
-    plan.room = { width: seatRoomWidth(snapshot), height: seatRoomHeight(snapshot) };
-    const position = snapSeat(
-      plan,
-      t,
-      start.tx - (ev.clientX - start.x) / scale,
-      start.ty - (ev.clientY - start.y) / scale,
-      ev.shiftKey ? 0 : 10 / scale,
-    );
-    const growth = moveSeat(plan, t, position.x, position.y);
-    room.style.width = plan.room.width + 'px';
-    room.style.height = plan.room.height + 'px';
-    // Keep the drag's original screen coordinate system until the pointer is released.
-    room.style.left = start.left - growth.left * scale + 'px';
-    room.style.top = -growth.top * scale + 'px';
-    for (const handle of room.querySelectorAll('[data-seat-desk]')) {
-      const teacher = handle.dataset.seatDesk === 'teacher';
-      const point = seatDesk(handle.dataset.seatDesk);
-      const dims = teacher ? { w: 200, h: 56 } : seatDimensions(point);
-      const position = seatDisplay(point, dims.w, dims.h, plan);
-      const element = teacher ? handle : handle.closest('.seat-table');
-      element.style.left = position.x + 'px';
-      element.style.top = position.y + 'px';
-    }
-  };
-  const end = () => {
-    b.removeEventListener('pointermove', move);
-    b.removeEventListener('pointerup', end);
-    b.removeEventListener('pointercancel', cancel);
-    b.removeEventListener('lostpointercapture', end);
-    seatDragging = false;
-    renderSeating();
-    if (
-      seatRoomWidth(plan) > seatRoomWidth(snapshot) ||
-      seatRoomHeight(plan) > seatRoomHeight(snapshot)
-    )
-      seatNotify('Raum automatisch erweitert. Bitte speichern Sie den geänderten Sitzplan.');
-  };
-  const cancel = () => {
-    Object.assign(plan, snapshot);
-    end();
-  };
-  b.addEventListener('lostpointercapture', end);
-  b.addEventListener('pointermove', move);
-  b.addEventListener('pointerup', end);
-  b.addEventListener('pointercancel', cancel);
-});
-new ResizeObserver(fitSeatRoom).observe($('seat-viewport'));
-window.addEventListener('resize', fitSeatRoom);
-for (const [id, fit] of [
-  ['seat-fit', true],
-  ['seat-detail', false],
-])
-  $(id).onclick = () => {
-    seatFit = fit;
-    fitSeatRoom();
-  };
-
-function seatDocument(plan, remote = false) {
-  const member = (id) => (remote ? (seatPerson(id)?.memberId ?? null) : id);
-  return {
-    size: plan.size,
-    layout: plan.layout,
-    rows: plan.rows,
-    ...(plan.room ? { room: plan.room } : {}),
-    teacher: plan.teacher,
-    tables: plan.tables.map((t) => ({
-      x: t.x,
-      y: t.y,
-      ...(t.vertical !== undefined ? { vertical: t.vertical } : {}),
-      slots: t.slots.map((id) => (id === null ? null : member(id))),
-    })),
-    pinned: plan.pinned.map(member).filter((id) => id !== null),
-  };
-}
-function seatDecode(plan) {
-  const ids = new Map(people.map((p) => [p.memberId, p.id]));
-  return {
-    ...structuredClone(plan),
-    tables: plan.tables.map((t) => ({ ...t, slots: t.slots.map((id) => ids.get(id) ?? null) })),
-    pinned: plan.pinned.map((id) => ids.get(id)).filter((id) => id !== undefined),
-    saved: null,
-  };
-}
-function seatDirty(entry) {
-  return (
-    !!entry.remote &&
-    ['shared', 'private'].some(
-      (scope) =>
-        entry[scope] && JSON.stringify(seatDocument(entry[scope])) !== entry.baselines?.[scope],
-    )
-  );
-}
-async function seatRequest(group, method = 'GET', body) {
-  const response = await fetch('./api/classes/' + encodeURIComponent(group) + '/seating', {
-    method,
-    credentials: 'same-origin',
-    cache: 'no-store',
-    headers: body
-      ? { 'Content-Type': 'application/json', 'X-CSRF-Token': authSession?.csrf || '' }
-      : {},
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    const e = new Error(data.error || 'Sitzplan konnte nicht geladen werden.');
-    e.status = response.status;
-    throw e;
-  }
-  return data;
-}
-async function loadSeatPlans(force = false) {
-  const entry = seatContext(),
-    group = selectedClass;
-  if (!group || entry.busy) return;
-  if (
-    force &&
-    seatDirty(entry) &&
-    !confirm('Ungespeicherte Änderungen verwerfen und gespeicherte Sitzpläne neu laden?')
-  )
-    return;
-  entry.busy = true;
-  entry.error = '';
-  renderSeating();
-  seatNotify('Gespeicherte Sitzpläne werden geladen …');
-  try {
-    const data = await seatRequest(group);
-    if (selectedClass !== group || seatingPlans.get(group) !== entry) return;
-    if (!data.shared || !data.private)
-      throw new Error('Sitzplan-Speicherung ist noch nicht verfügbar.');
-    entry.remote = true;
-    entry.meta = data;
-    entry.meta.privateVersions = data.privateVersions || [data.private].filter((v) => v.plan);
-    if (!data.private.plan && entry.meta.privateVersions.length)
-      entry.meta.private = entry.meta.privateVersions[0];
-    entry.baselines = {};
-    for (const scope of ['shared', 'private']) {
-      if (data[scope].plan) entry[scope] = seatDecode(data[scope].plan);
-      else if (scope === 'private') entry.private = null;
-      else entry.shared = structuredClone(entry.initial);
-      if (entry[scope])
-        entry[scope].room = {
-          width: seatRoomWidth(entry[scope]),
-          height: seatRoomHeight(entry[scope]),
-        };
-      entry.baselines[scope] = entry[scope] ? JSON.stringify(seatDocument(entry[scope])) : null;
-    }
-    if (entry.view === 'private' && !entry.private) entry.view = 'shared';
-    seatSelection = null;
-    seatNotify(
-      'Gespeicherte Sitzpläne geladen. Änderungen werden erst mit „Speichern“ übernommen.' +
-        (entry[entry.view].layout === 'u' &&
-        entry[entry.view].tables.some((t) => t.vertical === undefined)
-          ? ' Für längs stehende Seitentische wählen Sie einmal „U-Form“.'
-          : ''),
-    );
-  } catch (e) {
-    if (selectedClass === group && seatingPlans.get(group) === entry) {
-      entry.error = e.message;
-      seatNotify(e.message);
-    }
-  } finally {
-    entry.busy = false;
-    if (selectedClass === group && seatingPlans.get(group) === entry) renderSeating();
-  }
-}
-async function saveSeatPlan(remove = false, newVersion = false) {
-  const entry = seatContext(),
-    group = selectedClass,
-    scope = entry.view;
-  if (!group || !entry.remote || entry.busy) return;
-  if (
-    remove &&
-    !confirm(
-      scope === 'shared'
-        ? 'Gemeinsamen Sitzplan für diese Klasse löschen? Dies betrifft alle berechtigten Lehrkräfte.'
-        : 'Ihren privaten Sitzplan löschen?',
-    )
-  )
-    return;
-  const document = seatDocument(entry[scope], true);
-  entry.busy = true;
-  renderSeating();
-  seatNotify(remove ? 'Sitzplan wird gelöscht …' : 'Sitzplan wird gespeichert …');
-  try {
-    const data = await seatRequest(group, remove ? 'DELETE' : 'POST', {
-      scope,
-      revision: entry.meta[scope].revision,
-      version: entry.meta[scope].version || 1,
-      newVersion,
-      ...(!remove ? { plan: document } : {}),
-    });
-    if (selectedClass !== group || seatingPlans.get(group) !== entry) return;
-    entry.meta[scope] = data;
-    if (scope === 'private') {
-      entry.meta.privateVersions = (entry.meta.privateVersions || []).filter(
-        (v) => v.version !== data.version,
-      );
-      if (data.plan) entry.meta.privateVersions.push(data);
-      entry.meta.privateVersions.sort((a, b) => a.version - b.version);
-    }
-    if (remove) {
-      entry[scope] = scope === 'private' ? null : structuredClone(entry.initial);
-      if (scope === 'private') entry.view = 'shared';
-    }
-    if (entry[scope])
-      entry[scope].room = {
-        width: seatRoomWidth(entry[scope]),
-        height: seatRoomHeight(entry[scope]),
-      };
-    entry.baselines[scope] = entry[scope] ? JSON.stringify(seatDocument(entry[scope])) : null;
-    seatNotify(
-      remove
-        ? 'Sitzplan gelöscht. Der Vorgang ist protokolliert.'
-        : 'Sitzplan dauerhaft gespeichert. ' +
-            (scope === 'shared'
-              ? 'Berechtigte Lehrkräfte können diesen Stand laden.'
-              : 'Nur Ihr Konto kann diesen Plan laden.'),
-    );
-  } catch (e) {
-    if (selectedClass === group && seatingPlans.get(group) === entry) seatNotify(e.message);
-  } finally {
-    entry.busy = false;
-    if (selectedClass === group && seatingPlans.get(group) === entry) renderSeating();
-  }
-}
-window.addEventListener('beforeunload', (e) => {
-  if ([...seatingPlans.values()].some(seatDirty)) {
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
-$('seat-reload').onclick = () => loadSeatPlans(true);
-$('seat-delete').onclick = () => saveSeatPlan(true);
-$('seat-new-version').onclick = () => saveSeatPlan(false, true);
-
-// Render exports locally; no student data leaves the browser for this operation.
-function invalidateSeatExport() {
-  seatExportEpoch++;
-  clearTimeout(seatExportTimer);
-  seatExportReady = null;
-  seatExportWork = null;
-  $('seat-print-image').removeAttribute('src');
-  $('seat-print-wait').hidden = false;
-}
-function scheduleSeatExport() {
-  clearTimeout(seatExportTimer);
-  seatExportTimer = setTimeout(() => {
-    if (mode === 'seating' && !classLoading) prepareSeatExport().catch(() => {});
-  }, 150);
-}
-function seatExportSnapshot() {
-  const room = $('seat-room'),
-    bounds = room.getBoundingClientRect(),
-    scale = bounds.width / room.offsetWidth;
-  const rect = (el) => {
-    const b = el.getBoundingClientRect();
-    return {
-      x: (b.x - bounds.x) / scale,
-      y: (b.y - bounds.y) / scale,
-      w: b.width / scale,
-      h: b.height / scale,
-    };
-  };
-  const plan = seatPlan(),
-    entry = seatContext(),
-    assigned = new Set(plan.tables.flatMap((t) => t.slots));
-  const desks = [...room.querySelectorAll('.seat-table')].map((el, i) => ({
-    box: rect(el),
-    label: 'Tisch ' + (i + 1),
-    slots: [...el.querySelectorAll('.seat-person')].map((button) => {
-      const id = button.dataset.seatPerson === '' ? null : Number(button.dataset.seatPerson),
-        person = id === null ? null : seatPerson(id);
-      return {
-        box: rect(button),
-        person: person
-          ? {
-              company: document.body.classList.contains('show-companies')
-                ? person.companyInfo?.short || person.companyInfo?.name || ''
-                : '',
-              first: person.first,
-              last: person.last,
-              photo: person.photo,
-              demoPortrait: person.demoPortrait,
-            }
-          : null,
-        face: person ? rect(button.querySelector('.seat-face')) : null,
-        name: person ? rect(button.querySelector('.seat-name')) : null,
-        companyBox:
-          person &&
-          document.body.classList.contains('show-companies') &&
-          button.querySelector('.company-caption')
-            ? rect(button.querySelector('.company-caption'))
-            : null,
-        nameAlign: person
-          ? getComputedStyle(button.querySelector('.seat-name')).textAlign
-          : 'center',
-        pinned: plan.pinned.includes(id),
-        absent: absent.has(id),
-      };
-    }),
-  }));
-  const dirty =
-    entry.remote && JSON.stringify(seatDocument(plan)) !== entry.baselines?.[entry.view];
-  return {
-    width: room.offsetWidth,
-    height: room.offsetHeight,
-    desks,
-    board: rect(room.querySelector('.seat-front')),
-    teacher: rect($('seat-teacher')),
-    className: $('class-name').textContent,
-    planName: $('seat-plan').selectedOptions[0]?.textContent || 'Sitzplan',
-    note: dirty ? 'Ungespeicherter Entwurf' : !selectedClass ? 'Lokaler Entwurf' : '',
-    unplaced: people
-      .filter((p) => !assigned.has(p.id))
-      .map(
-        (p) =>
-          p.first +
-          ' ' +
-          p.last +
-          (document.body.classList.contains('show-companies') && p.companyInfo
-            ? ' · ' + (p.companyInfo.short || p.companyInfo.name)
-            : ''),
-      ),
-    count: people.length,
-    date: new Date().toLocaleDateString('de-DE'),
-  };
-}
-function loadSeatExportImage(src) {
-  return new Promise((resolve) => {
-    const img = new Image(),
-      timer = setTimeout(() => {
-        img.onload = null;
-        img.onerror = null;
-        resolve(null);
-      }, 10000);
-    img.onload = () => {
-      clearTimeout(timer);
-      resolve(img);
-    };
-    img.onerror = () => {
-      clearTimeout(timer);
-      resolve(null);
-    };
-    img.src = src;
-  });
-}
-async function prepareSeatExport() {
-  if (seatExportReady) return seatExportReady;
-  if (seatExportWork) return seatExportWork;
-  if (mode !== 'seating' || classLoading || seatContext().busy)
-    throw new Error('Bitte warten Sie, bis der Sitzplan geladen ist.');
-  const epoch = seatExportEpoch,
-    snapshot = seatExportSnapshot();
-  const source = (p) =>
-    p.photo ||
-    (Number.isInteger(p.demoPortrait) ? './demo-portraits.png' : './avatar-placeholder.png');
-  const sources = [
-    ...new Set(
-      snapshot.desks.flatMap((t) => t.slots.filter((s) => s.person).map((s) => source(s.person))),
-    ),
-  ];
-  const work = (async () => {
-    const images = new Map(
-      await Promise.all(sources.map(async (src) => [src, await loadSeatExportImage(src)])),
-    );
-    if (epoch !== seatExportEpoch)
-      throw new Error('Der Plan wurde geändert. Bitte starten Sie den Export erneut.');
-    const result = drawSeatExport(snapshot, images, source);
-    result.snapshot = snapshot;
-    seatExportReady = result;
-    $('seat-print-image').src = result.data;
-    $('seat-print-image').alt = 'Sitzplan ' + snapshot.className + ' · ' + snapshot.planName;
-    $('seat-print-wait').hidden = true;
-    $('seat-print').classList.toggle('seat-landscape', result.width > result.height);
-    return result;
-  })();
-  seatExportWork = work;
-  try {
-    return await work;
-  } finally {
-    if (seatExportWork === work) seatExportWork = null;
-  }
-}
-async function exportSeatPlan(print) {
-  const button = $(print ? 'seat-print-button' : 'seat-image');
-  button.disabled = true;
-  try {
-    fitSeatRoom();
-    const exported = await prepareSeatExport();
-    if (exported.missing)
-      seatNotify(
-        'Ein Foto konnte nicht geladen werden und wird im Export durch Initialen ersetzt.',
-      );
-    if (print) {
-      await $('seat-print-image').decode();
-      window.print();
-    } else {
-      const a = document.createElement('a');
-      a.href = exported.data;
-      a.download =
-        ('Sitzplan-' + exported.snapshot.className + '-' + exported.snapshot.planName)
-          .replace(/[^a-zA-Z0-9äöüÄÖÜß._-]+/g, '-')
-          .slice(0, 180) + '.png';
-      a.click();
-      if (!exported.missing) seatNotify('Sitzplan als PNG-Bild gespeichert.');
-    }
-  } catch (e) {
-    seatNotify(
-      e.message || 'Der Sitzplan konnte nicht exportiert werden. Bitte versuchen Sie es erneut.',
-    );
-  } finally {
-    button.disabled = false;
-  }
-}
-$('seat-print-button').onclick = () => exportSeatPlan(true);
-$('seat-image').onclick = () => exportSeatPlan(false);
 
 function leaveLearning() {
   if (mode === 'learning') learningUI?.reset();
@@ -3256,9 +1918,9 @@ learningUI = createLearningUI({
   }),
   face,
   escapeHTML,
-  groups: () => adminState?.groups || [],
+  groups: () => adminUI?.groups() || [],
 });
-learningAdmin = setupLearningAdmin(learningUI, setAdminPanel);
+
 $('learn-tab').onclick = () => {
   if (running || classLoading) return;
   mode = 'learning';
