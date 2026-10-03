@@ -347,6 +347,7 @@ function clearResult() {
 }
 function lock(value) {
   running = value;
+  $('grid').setAttribute('aria-busy', String(value));
   document
     .querySelectorAll('aside input, aside select, aside button, .main-tabs button, #grid button')
     .forEach((el) => (el.disabled = value));

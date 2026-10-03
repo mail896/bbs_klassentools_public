@@ -29,6 +29,24 @@ const path = require('node:path');
     await page.locator('.exports [data-show-companies]').check();
     assert.equal(await page.locator('#grid .company-caption').first().isVisible(), true);
     await page.screenshot({ path: '/tmp/v1113-companies.png', fullPage: true });
+    await page.fill('#pick-count', '3');
+    await page.click('#start');
+    assert.equal(await page.locator('#grid .company-info').first().isVisible(), false);
+    await page.waitForFunction(() => document.querySelector('#grid').classList.contains('result'), {
+      timeout: 20000,
+    });
+    assert.equal(await page.locator('#grid .company-info').count(), 3);
+    assert.equal(await page.locator('#grid .company-info').first().isVisible(), false);
+    await page.waitForFunction(
+      () => document.querySelector('#grid').getAttribute('aria-busy') === 'false',
+    );
+    assert.equal(await page.locator('#grid .company-info').first().isVisible(), true);
+    await page.click('#back');
+    await page.click('#start');
+    await page.click('#skip');
+    assert.equal(await page.locator('#grid .company-info').first().isVisible(), true);
+    await page.click('#back');
+    await page.fill('#pick-count', '1');
     await page.uncheck('#animation');
     await page.click('#start');
     await page.locator('#grid .chosen').waitFor();
