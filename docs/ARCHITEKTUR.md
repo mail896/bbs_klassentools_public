@@ -51,3 +51,26 @@ Einzelner Node-Prozess, lokale SQLite-Datenbanken, kein Mehrinstanzbetrieb.
 ## Namen lernen
 
 [Lernmodi, Betriebszuordnungen, Daten und Löschregeln](LEARNING.md). Fünf zusätzliche Tabellen in der bestehenden geschützten SQLite.
+
+
+## Auslieferung und Modulgrenzen
+
+`app.js` verbindet die gemeinsame Oberfläche und Fotoverwaltung. Sitzplan und Administration
+werden über versionierte dynamische Imports erst bei Bedarf geladen:
+`seating-ui.mjs` verwaltet Raum, Pläne und Export; `administration-ui.mjs` verwaltet
+Klassenfreigaben, Audit und Statistik. Die Controller erhalten einen expliziten Kontext
+mit aktuellen Zustandswerten und Rückrufen. Schnelles Wechseln während des Ladens
+öffnet keine inzwischen abgewählte Ansicht. `update-assets.py` verfolgt statische
+und dynamische lokale Modulimporte.
+
+Demo-Porträts und Platzhalter liegen als WebP bei unveränderter Auflösung vor.
+Öffentliche Dateien werden mit `Cache-Control: no-cache` ausgeliefert: Browser dürfen
+sie speichern, müssen vor Wiederverwendung jedoch beim Server nachfragen. ETag und
+Last-Modified ermöglichen Antworten ohne erneute Dateiübertragung. Query-Hashes sind
+Versionskennzeichen, keine archivierten unveränderlichen URLs; deshalb kein `immutable`.
+API- und OIDC-Antworten bleiben `no-store`. Die vorhandene gzip-Kompression bleibt aktiv.
+
+Das Backend verwendet einen gemeinsamen begrenzten JSON-Leser. Endpunkte behalten
+ihre jeweiligen Größenlimits und Fachprüfungen. Die Abfrage erlaubter Klassen ist
+gebündelt, ohne Berechtigungen zwischen Anfragen zu cachen. Prüfungen vor dem Schreiben
+und nach asynchronen IServ-Anfragen bleiben erhalten.

@@ -485,3 +485,22 @@ for (const action of ['logout', 'expiry']) {
     );
   }
 }
+
+test('JSON requests reject malformed and oversized bodies without recording changes', async (t) => {
+  const events = [];
+  const h = await harness(t, 'teacher-uuid', { usage: { record: (event) => events.push(event) } });
+  for (const [body, expected] of [
+    ['{', 400],
+    ['null', 400],
+    ['"' + 'x'.repeat(1024) + '"', 413],
+  ]) {
+    const response = await h.call('api/usage', {
+      method: 'POST',
+      headers: { origin, 'content-type': 'application/json' },
+      body,
+    });
+    assert.equal(response.status, expected);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+  assert.deepEqual(events, []);
+});

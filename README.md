@@ -8,7 +8,7 @@ Gestalten von Sitzplänen – anschaulich mit Fotos und einer Portion Spannung.
 
 ## Stand
 
-- Version **1.2.10**, 3. Oktober 2026.
+- Version **1.2.11**, 3. Oktober 2026.
 - Verantwortlich: **Marc Schulz · BBS Einbeck**.
 - Öffentlicher, bereinigter Quellstand mit eigener Historie und MIT-Lizenz.
 - Screenshots und Demo verwenden ausschließlich erfundene Namen und KI-Porträts.

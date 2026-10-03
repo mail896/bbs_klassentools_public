@@ -30,6 +30,11 @@ def module(name, chain=()):
         module(dependency, (*chain, name))
         return "from './" + dependency + '?v=' + digest(dependency) + "'"
     text = re.sub(r"from '\./([a-z0-9-]+\.mjs)(?:\?v=[a-f0-9]+)?'", replace, path.read_text())
+    def dynamic(match):
+        dependency = match[1]
+        module(dependency, (*chain, name))
+        return "import('./" + dependency + '?v=' + digest(dependency) + "')"
+    text = re.sub(r"import\('\./([a-z0-9-]+\.mjs)(?:\?v=[a-f0-9]+)?'\)", dynamic, text)
     save(path, text)
     visited.add(name)
 

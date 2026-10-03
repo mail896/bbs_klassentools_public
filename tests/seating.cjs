@@ -42,6 +42,7 @@ const assert = require('node:assert/strict'),
   await page.goto('https://apps.school.example/klassentools/?demo=1');
   await page.locator('.person').first().waitFor();
   await page.click('#seat-tab');
+  await page.locator('#seating-panel').waitFor({ state: 'visible' });
   await page.locator('#seat-plan-tools > summary').click();
   await page.locator('#seat-table-tools > summary').click();
   await page.click('#seat-fit');
@@ -97,6 +98,7 @@ const assert = require('node:assert/strict'),
     await page.click('#pick-tab');
     assert.equal((await page.locator('.stage').boundingBox()).x, seatX);
     await page.click('#seat-tab');
+    await page.locator('#seating-panel').waitFor({ state: 'visible' });
   }
   await page.setViewportSize({ width: 1600, height: 1200 });
   assert.equal(
@@ -242,9 +244,11 @@ const assert = require('node:assert/strict'),
   assert.equal(await page.locator('#seating-panel').isVisible(), false);
   assert.equal(await page.locator('.stage').isVisible(), true);
   await page.click('#seat-tab');
+  await page.locator('#seating-panel').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.seat-table').count(), 12);
   await page.reload();
   await page.click('#seat-tab');
+  await page.locator('#seating-panel').waitFor({ state: 'visible' });
   assert.equal(
     await page.locator('#seat-plan option[value=private]').evaluate((e) => e.disabled),
     true,
@@ -256,6 +260,7 @@ const assert = require('node:assert/strict'),
   await page.selectOption('#class-select', 'test-room');
   await page.waitForFunction(() => document.querySelectorAll('.person').length === 31);
   await page.click('#seat-tab');
+  await page.locator('#seating-panel').waitFor({ state: 'visible' });
   assert.equal(await page.locator('.seat-table').count(), 16);
   assert.equal(await page.locator('#seat-tables .seat-person[draggable=true]').count(), 31);
   await page.selectOption('#class-select', '');
@@ -267,6 +272,7 @@ const assert = require('node:assert/strict'),
   assert.deepEqual(errors, []);
   await page.setViewportSize({ width: 1600, height: 1200 });
   await page.click('#seat-tab');
+  await page.locator('#seating-panel').waitFor({ state: 'visible' });
   await page.waitForTimeout(50);
   await page.locator('#seat-plan-tools').evaluate((e) => {
     e.open = true;

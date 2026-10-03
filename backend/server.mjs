@@ -15,6 +15,25 @@ const origin = 'https://apps.school.example';
 const sidName = '__Secure-klassentools-session',
   txName = '__Secure-klassentools-login';
 const id = () => randomBytes(32).toString('base64url');
+async function readJson(
+  req,
+  limit,
+  { tooLarge = 'Anfrage zu groß.', invalid = 'Ungültige Anfrage.' } = {},
+) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new HttpError(413, tooLarge);
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new HttpError(400, invalid);
+  }
+}
+
 function cookies(req) {
   return Object.fromEntries(
     (req.headers.cookie || '')
@@ -175,6 +194,10 @@ export function createApp({
         assertSession(sid, session);
         return rows;
       };
+      const currentClasses = async () => {
+        const groups = directoryGroups(await directory('groups', userUuid(session.info)));
+        return filterClasses(session.info, groups);
+      };
       if (url.pathname === '/klassentools/api/usage') {
         if (req.method !== 'POST') return json(res, 405, { error: 'Methode nicht erlaubt.' });
         if (!usage) return json(res, 503, { error: 'Statistik nicht verfügbar.' });
@@ -188,19 +211,7 @@ export function createApp({
         }
         if (++usageRequests > 600 || visits.size >= 5000)
           return json(res, 429, { error: 'Zu viele Anfragen.' });
-        let size = 0,
-          chunks = [];
-        for await (const chunk of req) {
-          size += chunk.length;
-          if (size > 1024) return json(res, 413, { error: 'Anfrage zu groß.' });
-          chunks.push(chunk);
-        }
-        let b;
-        try {
-          b = JSON.parse(Buffer.concat(chunks));
-        } catch {
-          return json(res, 400, { error: 'Ungültige Anfrage.' });
-        }
+        const b = await readJson(req, 1024);
         if (
           !b ||
           Object.keys(b).some(
@@ -294,18 +305,7 @@ export function createApp({
             return json(res, 415, { error: 'JSON erforderlich.' });
           if (Number(req.headers['content-length']) > 100000)
             return json(res, 413, { error: 'Anfrage zu groß.' });
-          let size = 0;
-          const chunks = [];
-          for await (const chunk of req) {
-            size += chunk.length;
-            if (size > 100000) return json(res, 413, { error: 'Anfrage zu groß.' });
-            chunks.push(chunk);
-          }
-          try {
-            body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          } catch {
-            return json(res, 400, { error: 'Ungültige Auswahl.' });
-          }
+          body = await readJson(req, 100000, { invalid: 'Ungültige Auswahl.' });
           if (!body || !validSelection(body.selected) || typeof body.revision !== 'string')
             return json(res, 400, { error: 'Ungültige Auswahl.' });
         }
@@ -382,8 +382,7 @@ export function createApp({
           throw new HttpError(403, 'Nur für die Administration freigegeben.');
         let group = learningMatch?.[1];
         if (group) {
-          const groups = directoryGroups(await directory('groups', owner));
-          if (!filterClasses(session.info, groups).some((g) => g.id === group))
+          if (!(await currentClasses()).some((g) => g.id === group))
             throw new HttpError(403, 'Kein Zugriff auf diese Klasse.');
         }
         let body = {};
@@ -392,18 +391,7 @@ export function createApp({
             throw new HttpError(403, 'Ungültige Anfrage.');
           if (req.headers['content-type']?.split(';')[0] !== 'application/json')
             throw new HttpError(415, 'JSON erforderlich.');
-          let size = 0;
-          const chunks = [];
-          for await (const c of req) {
-            size += c.length;
-            if (size > 50000) throw new HttpError(413, 'Anfrage zu groß.');
-            chunks.push(c);
-          }
-          try {
-            body = JSON.parse(Buffer.concat(chunks).toString());
-          } catch {
-            throw new HttpError(400, 'Ungültige Anfrage.');
-          }
+          body = await readJson(req, 50000);
           if (!body || typeof body !== 'object' || Array.isArray(body))
             throw new HttpError(400, 'Ungültige Anfrage.');
         }
@@ -484,8 +472,7 @@ export function createApp({
             throw new HttpError(403, 'Zugang nur für Lehrkräfte.');
           if (!photos || !idm || !getIdmToken || !studentUuid)
             throw new HttpError(503, 'Sitzpläne sind derzeit nicht verfügbar.');
-          const groups = directoryGroups(await directory('groups', userUuid(session.info)));
-          const allowed = filterClasses(session.info, groups).find((g) => g.id === group);
+          const allowed = (await currentClasses()).find((g) => g.id === group);
           if (!allowed) throw new HttpError(403, 'Kein Zugriff auf diese Klasse.');
           classAccount = allowed.account || allowed.name || group;
         };
@@ -519,19 +506,7 @@ export function createApp({
           return json(res, 403, { error: 'Ungültige Anfrage.' });
         if (req.headers['content-type']?.split(';')[0] !== 'application/json')
           return json(res, 415, { error: 'JSON erforderlich.' });
-        const chunks = [];
-        let size = 0;
-        for await (const chunk of req) {
-          size += chunk.length;
-          if (size > 100000) throw new HttpError(413, 'Sitzplan zu groß.');
-          chunks.push(chunk);
-        }
-        let body;
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        } catch {
-          throw new HttpError(400, 'Ungültige Anfrage.');
-        }
+        const body = await readJson(req, 100000, { tooLarge: 'Sitzplan zu groß.' });
         if (
           !body ||
           !['shared', 'private'].includes(body.scope) ||
@@ -580,8 +555,7 @@ export function createApp({
             throw new HttpError(403, 'Zugang nur für Lehrkräfte.');
           if (!idm || !getIdmToken || !photos)
             throw new HttpError(503, 'Die Fotoverwaltung ist nicht verfügbar.');
-          const groups = directoryGroups(await directory('groups', userUuid(session.info)));
-          const matched = filterClasses(session.info, groups).find((g) => g.id === photoMatch[1]);
+          const matched = (await currentClasses()).find((g) => g.id === photoMatch[1]);
           if (!matched) throw new HttpError(403, 'Kein Zugriff auf diese Klasse.');
           photoClassName = matched.name;
         };
@@ -611,21 +585,9 @@ export function createApp({
         photoBusy = true;
         try {
           const max = req.method === 'POST' ? 16000000 : 20000;
-          let size = 0;
-          const chunks = [];
           if (Number(req.headers['content-length']) > max)
             throw new HttpError(413, 'Die Fotoauswahl ist zu groß. Bitte weniger Fotos auswählen.');
-          for await (const chunk of req) {
-            size += chunk.length;
-            if (size > max) throw new HttpError(413, 'Die Fotoauswahl ist zu groß.');
-            chunks.push(chunk);
-          }
-          let body;
-          try {
-            body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          } catch {
-            throw new HttpError(400, 'Ungültige Anfrage.');
-          }
+          const body = await readJson(req, max, { tooLarge: 'Die Fotoauswahl ist zu groß.' });
           if (!body || !Number.isSafeInteger(body.revision) || body.revision < 0)
             throw new HttpError(400, 'Bearbeitungsstand fehlt. Bitte Klasse neu laden.');
           const actorId = userUuid(session.info),
@@ -730,8 +692,7 @@ export function createApp({
           return json(res, 503, {
             error: 'Die IServ-Mitgliederabfrage ist noch nicht freigegeben.',
           });
-        const groups = directoryGroups(await directory('groups', userUuid(session.info)));
-        const classes = filterClasses(session.info, groups);
+        const classes = await currentClasses();
         session.usageClasses = classes;
         if (url.pathname === '/klassentools/api/classes')
           return json(res, 200, { classes, rosterReady: !!idm && !!studentUuid });

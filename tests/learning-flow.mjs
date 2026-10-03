@@ -44,7 +44,8 @@ const app = createApp({
   },
 });
 const image = await preparePhoto(
-  'data:image/png;base64,' + readFileSync(join(root, 'avatar-placeholder.png')).toString('base64'),
+  'data:image/webp;base64,' +
+    readFileSync(join(root, 'avatar-placeholder.webp')).toString('base64'),
 );
 store.mutate({
   group: 'g',

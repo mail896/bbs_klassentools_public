@@ -6,7 +6,7 @@ STAGE = Path('/var/lib/klassentools-staging')
 RELEASES = Path('/var/www/klassentools/releases')
 LIVE = Path('/var/www/html/klassentools')
 STATE = Path('/var/lib/klassentools-deploy')
-FILES = ('index.html', 'style.css', 'app.js', 'logic.mjs', 'demo.mjs', 'photo-matching.mjs', 'seating-layout.mjs', 'seating-export.mjs', 'learning-core.mjs', 'learning-ui.mjs', 'admin-ui.mjs', 'dice-bbs.png', 'demo-portraits.png', 'avatar-placeholder.png', 'landing-school.webp')
+FILES = ('index.html', 'style.css', 'app.js', 'logic.mjs', 'demo.mjs', 'photo-matching.mjs', 'seating-ui.mjs', 'seating-layout.mjs', 'seating-export.mjs', 'learning-core.mjs', 'learning-ui.mjs', 'admin-ui.mjs', 'administration-ui.mjs', 'dice-bbs.png', 'demo-portraits.webp', 'avatar-placeholder.webp', 'landing-school.webp')
 
 def protected(p, directory=False):
     s = p.lstat()

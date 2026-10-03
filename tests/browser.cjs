@@ -55,7 +55,7 @@ const fs = require('node:fs'),
   assert.equal(
     await page.evaluate(async () => {
       const img = new Image();
-      img.src = './demo-portraits.png';
+      img.src = './demo-portraits.webp';
       await img.decode();
       return img.naturalWidth === 1536 && img.naturalHeight === 1024;
     }),
