@@ -1,0 +1,559 @@
+<!doctype html>
+<html data-demo-only="true" lang="de" data-theme="light">
+  <head>
+    <meta charset="utf-8" /><meta name="robots" content="noindex" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#111820" />
+    <title>KlassenTools · BBS Einbeck</title>
+    <link rel="icon" type="image/png" href="./dice-bbs.png?v=5fbdcce90496" />
+    <link rel="stylesheet" href="./style.css?v=2a363858c7cf" />
+    <script type="module" src="./app.js?v=2f7d8bfa81d1"></script>
+  </head>
+  <body class="entry-pending">
+    <header>
+      <div class="brand-block">
+        <a class="brand" href="./"
+          ><img
+            class="dice-logo"
+            width="44"
+            height="44"
+            src="./dice-bbs.png?v=5fbdcce90496"
+            alt="3D-Zufallswürfel mit BBS-Einbeck-Logo"
+          />
+          KlassenTools<span class="school">BBS EINBECK</span></a
+        >
+        <section class="account-bar" aria-label="IServ-Anmeldung">
+          <div>
+            <p id="auth-status" role="status">Anmeldestatus wird geprüft …</p>
+            <ul id="auth-roles" hidden></ul>
+          </div>
+          <div class="account-actions">
+            <a class="login-link" id="login-link" href="./oidc/login" target="_top"
+              >Mit IServ anmelden</a
+            ><button id="admin-open" type="button" hidden>Administration</button
+            ><button id="logout" type="button" hidden>Abmelden</button>
+          </div>
+        </section>
+      </div>
+      <div class="header-actions">
+        <label class="theme-control" for="theme"
+          ><select id="theme" aria-label="Farbdarstellung" title="Farbdarstellung">
+            <option value="auto">◐ Auto</option>
+            <option value="light">☀ Hell</option>
+            <option value="dark">☾ Dunkel</option>
+          </select></label
+        ><button id="fullscreen">⛶ <span>Vollbild</span></button>
+      </div>
+    </header>
+    <main id="landing" hidden aria-labelledby="landing-title">
+      <section class="landing-hero">
+        <div class="landing-copy">
+          <span class="eyebrow">FÜR IHREN UNTERRICHT</span>
+          <h1 id="landing-title">Ihre Klasse.<br /><em>Viele Möglichkeiten.</em></h1>
+          <p>
+            Schüler auswählen, Teams bilden und Sitzpläne gestalten – mit Klassenfotos, einer
+            Portion Zufall und Platz für Ihre Ideen.
+          </p>
+          <div id="landing-status" role="alert"></div>
+          <div class="landing-choices">
+            <a id="landing-login" class="landing-primary" href="./oidc/login"
+              >Mit IServ anmelden <span aria-hidden="true">→</span></a
+            ><a id="landing-demo" class="landing-secondary" href="./?demo=1"
+              >Anonym mit DEMO-Klasse starten <span aria-hidden="true">→</span></a
+            >
+          </div>
+          <p class="landing-access">
+            IServ: Ihre Klassen, gemeinsame Fotos und gespeicherte Sitzpläne.<br />DEMO: direkt
+            ausprobieren, ohne Anmeldung.
+          </p>
+        </div>
+      </section>
+      <section class="landing-features" aria-label="Möglichkeiten">
+        <article>
+          <span>01 / AUSWÄHLEN</span>
+          <h2>Alle kommen dran.</h2>
+          <p>
+            Eine oder mehrere Personen ziehen, Abwesende ausnehmen und Wiederholungen auf Wunsch
+            vermeiden.
+          </p>
+        </article>
+        <article>
+          <span>02 / TEAMS</span>
+          <h2>Neue Gruppen. Neue Ideen.</h2>
+          <p>
+            Teamgröße oder Anzahl festlegen. Die App mischt und verteilt die Anwesenden gleichmäßig.
+          </p>
+        </article>
+        <article>
+          <span>03 / NAMEN LERNEN</span>
+          <h2>Gesichter kennen. Namen behalten.</h2>
+          <p>
+            Fotos und Namen zuordnen, Karteikarten üben oder gegen die Zeit spielen. Unsichere Namen
+            werden häufiger wiederholt.
+          </p>
+        </article>
+        <article>
+          <span>04 / SITZPLAN</span>
+          <h2>Alle finden ihren Platz.</h2>
+          <p>
+            Tische anordnen, Schüler umsetzen oder zufällig verteilen. Pläne gemeinsam nutzen oder
+            als private Variante speichern.
+          </p>
+        </article>
+      </section>
+    </main>
+    <main id="app-main">
+      <section class="class-heading">
+        <div>
+          <div class="eyebrow">IHRE KLASSE</div>
+          <div class="class-title-row">
+            <section id="iserv-classes" class="class-picker" hidden>
+              <label for="class-select">Ihre Klasse</label
+              ><select id="class-select">
+                <option value="">DEMO-Klasse</option></select
+              ><span id="class-status" role="status"></span>
+            </section>
+            <h1>
+              <span id="class-name">DEMO-Klasse</span>
+              <span id="class-total">24 Schülerinnen und Schüler</span>
+            </h1>
+          </div>
+        </div>
+        <div class="tabs main-tabs" role="tablist" aria-label="Hauptmenü">
+          <button id="pick-tab" role="tab" aria-selected="true">Einzelauswahl</button
+          ><button id="team-tab" role="tab" aria-selected="false">Teams</button
+          ><button id="learn-tab" role="tab" aria-selected="false">Namen lernen</button>
+          <button id="seat-tab" role="tab" aria-selected="false">Sitzplan</button>
+        </div>
+        <div class="class-actions"><button id="manage">Klasse & Fotos</button></div>
+      </section>
+
+      <div class="workspace">
+        <aside>
+          <div class="settings">
+            <h2 id="mode-title">Einzelauswahl</h2>
+            <p id="mode-hint">Eine faire Wahl. Ein bisschen Spannung.</p>
+            <div id="pick-settings">
+              <label for="pick-count">Anzahl auswählen</label>
+              <div class="stepper">
+                <button id="minus" aria-label="Anzahl verringern">−</button
+                ><input id="pick-count" type="number" min="1" max="23" value="1" /><button
+                  id="plus"
+                  aria-label="Anzahl erhöhen"
+                >
+                  +
+                </button>
+              </div>
+              <small id="pick-hint" hidden
+                >Für eine Zufallsauswahl müssen mindestens zwei Schüler anwesend sein.</small
+              >
+            </div>
+            <div id="team-settings" hidden>
+              <label for="team-method">Teams einteilen nach</label
+              ><select id="team-method">
+                <option value="size">Teamgröße</option>
+                <option value="count">Anzahl der Teams</option></select
+              ><label for="team-count" id="team-label">Gewünschte Teamgröße</label
+              ><input id="team-count" type="number" min="2" max="12" value="4" />
+              <p class="help" id="team-preview"></p>
+            </div>
+            <div id="fair-settings">
+              <label class="check"
+                ><input id="fair" type="checkbox" checked /><span
+                  >Alle kommen dran<small>(Erst wieder ziehen, wenn alle dran waren.)</small></span
+                ></label
+              >
+            </div>
+            <label class="check motion"
+              ><input id="animation" type="checkbox" checked /><span>Mit Animation</span></label
+            >
+            <div class="history" id="draw-history">
+              <span id="pool"></span><button id="reset">Zurücksetzen</button>
+            </div>
+            <button class="primary" id="start"><span>Auswählen</span></button
+            ><button id="skip" hidden>Sofort Ergebnis zeigen</button>
+          </div>
+          <div class="attendance">
+            <span class="eyebrow">HEUTE DABEI</span>
+            <div>
+              <strong id="present-count">24</strong
+              ><span><span id="attendance-total"> / 24 anwesend</span></span>
+            </div>
+            <p>Kachel anklicken, um jemanden als abwesend zu markieren.</p>
+            <button id="all-present" hidden>Alle wieder dabei</button>
+          </div>
+          <div class="local-note">
+            Demo-Einstellungen und Ziehungsverlauf bleiben in diesem Browser.
+          </div>
+        </aside>
+        <section class="stage" aria-label="Klassenansicht">
+          <div class="stage-top">
+            <div>
+              <span class="live-dot"></span
+              ><span id="stage-title">Bereit für die nächste Runde</span>
+            </div>
+            <div class="exports">
+              <label class="company-toggle"
+                ><input type="checkbox" data-show-companies />Betriebe anzeigen</label
+              >
+              <button id="back" hidden>Alle anzeigen</button
+              ><button id="print" title="Drucken oder als PDF speichern">Drucken</button
+              ><button id="export">CSV</button>
+            </div>
+          </div>
+          <div id="selection-surface" class="work-surface">
+            <div id="announcement" role="status" aria-live="polite"></div>
+            <div id="grid" class="grid"></div>
+            <div id="random-signal" class="random-signal">
+              <span id="signal-chance"></span><span id="signal-label" aria-hidden="true"></span
+              ><span id="signal-code" aria-hidden="true"></span
+              ><span class="signal-cursor" aria-hidden="true">▌</span>
+            </div>
+            <div class="stage-bottom"><span id="bottom-hint"></span></div>
+          </div>
+        </section>
+        <section id="seating-panel" hidden aria-labelledby="seating-title">
+          <div class="seat-controls">
+            <div class="seat-heading">
+              <div>
+                <h2 id="seating-title">Sitzplan</h2>
+              </div>
+              <p class="tool-description">Plätze anordnen. Gemeinsam den Überblick behalten.</p>
+              <span class="seat-storage-badge" id="seat-storage-mode">Sitzplan</span>
+            </div>
+            <p class="seat-disclaimer" id="seat-storage-note">
+              Zum Ausprobieren: Pläne bleiben nur bis zum Neuladen in diesem Browserfenster.
+              Gemeinsames Speichern und der Änderungsverlauf folgen.
+            </p>
+            <details class="control-group" id="seat-plan-tools">
+              <summary>Plan &amp; Speichern</summary>
+              <div class="seat-toolbar">
+                <label
+                  >Plan<select id="seat-plan">
+                    <option value="shared">Klassenentwurf</option>
+                    <option value="private" disabled>Meine private Kopie</option>
+                  </select></label
+                ><button id="seat-copy">Private Kopie anlegen</button
+                ><button id="seat-save">Entwurf merken</button
+                ><button id="seat-new-version" hidden>Als neue Version speichern</button
+                ><button id="seat-restore" disabled>Gemerkten Stand laden</button
+                ><button id="seat-reload" hidden>Gespeicherte Pläne laden</button
+                ><button id="seat-delete" hidden>Plan löschen</button
+                ><small id="seat-save-state" role="status"></small>
+              </div>
+            </details>
+            <details class="control-group" id="seat-table-tools">
+              <summary>Tische &amp; Anordnung</summary>
+              <div class="seat-toolbar seat-layout-tools">
+                <label
+                  >Tische<select id="seat-size">
+                    <option value="2">Zweiertische</option>
+                    <option value="1">Einzeltische</option>
+                  </select></label
+                ><button id="seat-u">U-Form</button><button id="seat-rows">Reihen</button
+                ><label class="seat-row-setting"
+                  >Anzahl Reihen<select id="seat-row-count">
+                    <option value="2">2 Reihen</option>
+                    <option value="3" selected>3 Reihen</option>
+                    <option value="4">4 Reihen</option>
+                    <option value="5">5 Reihen</option>
+                    <option value="6">6 Reihen</option>
+                  </select></label
+                ><label
+                  >Ausrichtung neuer Tische<select id="seat-orientation">
+                    <option value="horizontal">Querformat</option>
+                    <option value="vertical">Hochkant</option>
+                  </select></label
+                ><button id="seat-add">+ Tisch</button><small id="seat-limit"></small
+                ><button id="seat-compact">Raum passend verkleinern</button
+                ><button id="seat-remove">Leere Tische entfernen</button>
+              </div>
+            </details>
+            <button id="seat-random" class="primary">Zufällig verteilen</button>
+          </div>
+          <div class="seat-canvas">
+            <div class="seat-view-tools" aria-label="Sitzplanansicht und Export">
+              <button id="seat-fit" aria-pressed="false">Gesamtansicht</button
+              ><button id="seat-detail" aria-pressed="true">Detailansicht</button
+              ><span id="seat-zoom"></span
+              ><label class="company-toggle"
+                ><input type="checkbox" data-show-companies />Betriebe anzeigen</label
+              ><button id="seat-print-button" title="Sitzplan drucken oder als PDF speichern">
+                Drucken</button
+              ><button id="seat-image">Als Bild speichern</button>
+            </div>
+            <div class="seat-summary">
+              <span id="seat-count"></span
+              ><span id="seat-status" role="status"
+                >Tische am Griff verschieben. Schüler ziehen oder erst den Schüler, dann den
+                Zielplatz anklicken.</span
+              >
+            </div>
+            <p class="seat-scroll-hint">
+              In der Detailansicht können Sie den Raum bei Bedarf scrollen.
+            </p>
+            <div id="seat-viewport">
+              <div id="seat-room">
+                <div class="seat-front">Tafel / Projektionsfläche</div>
+                <button
+                  class="seat-teacher"
+                  id="seat-teacher"
+                  data-seat-desk="teacher"
+                  aria-label="Lehrkraft verschieben; Pfeiltasten zum Bewegen"
+                >
+                  ⠿ Lehrkraft
+                </button>
+                <div id="seat-tables"></div>
+              </div>
+            </div>
+            <div class="seat-tray">
+              <h3>Noch ohne Platz <span id="seat-unplaced-count"></span></h3>
+              <p>
+                Ausgewählten Schüler hier ablegen oder einen Schüler aus dieser Liste auf einen
+                freien Sitz setzen.
+              </p>
+              <button id="seat-unseat">Auswahl vom Platz nehmen</button>
+              <div id="seat-unplaced"></div>
+            </div>
+          </div>
+        </section>
+        <section id="learning-panel" hidden aria-label="Namen lernen"></section>
+      </div>
+    </main>
+    <footer>
+      <span
+        >BBS Einbeck · KlassenTools<br /><span class="footer-author"
+          >2026 <a href="mailto:marc.schulz@bbs-einbeck.de">Marc Schulz</a></span
+        ></span
+      ><span class="footer-project"
+        >Version 1.2.0<br /><a
+          href="https://github.com/mail896/bbs_klassentools_public"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Quelltext/Dokumentation</a
+        >
+        /
+        <a
+          href="https://mail896.github.io/bbs_klassentools_public/"
+          target="_blank"
+          rel="noopener noreferrer"
+          >GitHub Pages</a
+        ></span
+      ><small class="usage-notice"
+        >Lokale Fotos und Dateinamen bleiben im Browser. Keine eigene Nutzungsstatistik. Hosting durch GitHub Pages.</small
+      >
+    </footer>
+    <dialog id="management" aria-labelledby="photo-title">
+      <form method="dialog">
+        <button class="close" type="button" aria-label="Schließen">×</button
+        ><span class="eyebrow">KLASSE & FOTOS</span>
+        <h2 id="photo-title">Klassenfotos</h2>
+        <p id="photo-intro">Fotos lokal ausprobieren oder einer IServ-Klasse zuordnen.</p>
+        <div class="upload-preview">
+          <label for="local-files">Fotos auswählen</label
+          ><input
+            id="local-files"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+          /><label for="local-photos">Oder einen ganzen Ordner auswählen</label
+          ><input
+            id="local-photos"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            webkitdirectory
+          />
+          <p class="help">
+            Dateinamen: Vorname Nachname oder Nachname Vorname. Auch Komma, Punkt, Bindestrich und
+            Unterstrich als Trennzeichen werden erkannt. Maximal 60 Fotos, je 10 MB. Unsichere
+            Zuordnungen bitte prüfen. Über „Ausschnitt“ können Sie jedes Foto anpassen.
+          </p>
+          <p id="import-status" role="status"></p>
+          <div id="photo-review-tools" hidden>
+            <label class="check"
+              ><input id="photo-review-open-only" type="checkbox" checked /><span
+                >Nur offene Zuordnungen</span
+              ></label
+            >
+            <p id="photo-review-count" role="status"></p>
+            <p class="help">
+              Für die Kontrolle aller Bildausschnitte den Filter ausschalten. Nicht zugeordnete
+              Fotos werden ausgelassen.
+            </p>
+          </div>
+          <button id="apply-photos" type="button" class="primary" hidden>Fotos speichern</button>
+          <div id="photo-review"></div>
+        </div>
+        <section id="stored-photos" hidden>
+          <h3>Gespeicherte Fotos</h3>
+          <p id="stored-photo-count"></p>
+          <div id="stored-photo-list"></div>
+          <div class="photo-tools">
+            <button id="delete-selected-photos" type="button">Ausgewählte löschen</button
+            ><button id="delete-all-photos" type="button">Alle Klassenfotos löschen</button>
+          </div>
+        </section>
+        <section id="company-assignment" aria-label="Ausbildungsbetriebe"></section>
+        <button id="cancel-photos" type="button">Abbrechen</button>
+      </form>
+    </dialog>
+    <dialog id="crop-dialog" aria-labelledby="crop-title">
+      <h2 id="crop-title">Bildausschnitt anpassen</h2>
+      <canvas
+        id="crop-preview"
+        width="640"
+        height="640"
+        aria-label="Quadratische Bildvorschau"
+      ></canvas>
+      <section id="crop-company" hidden>
+        <label for="crop-company-search">Ausbildungsbetrieb suchen</label>
+        <input id="crop-company-search" type="search" placeholder="Name oder Ort" />
+        <label for="crop-company-select">Ausbildungsbetrieb</label>
+        <select id="crop-company-select"></select>
+        <p id="crop-company-results" role="status"></p>
+      </section>
+      <details id="crop-settings">
+        <summary>Bildausschnitt anpassen</summary>
+        <label class="check"
+          ><input id="crop-fit" type="checkbox" /><span>Ganzes Foto mit Rand</span></label
+        ><label for="crop-zoom">Vergrößerung</label
+        ><input id="crop-zoom" type="range" min="1" max="3" step="0.05" value="1" /><label
+          for="crop-x"
+          >Horizontaler Ausschnitt</label
+        ><input id="crop-x" type="range" min="0" max="1" step="0.01" value="0.5" /><label
+          for="crop-y"
+          >Vertikaler Ausschnitt</label
+        ><input id="crop-y" type="range" min="0" max="1" step="0.01" value="0.35" />
+      </details>
+      <p id="crop-status" role="status"></p>
+      <div class="photo-tools">
+        <button id="crop-cancel" type="button">Abbrechen</button
+        ><button id="crop-apply" class="primary" type="button">Ausschnitt übernehmen</button>
+      </div>
+    </dialog>
+    <main id="admin-access" hidden>
+      <h1>Administration</h1>
+      <p>Bitte melden Sie sich mit einem freigegebenen Administrationskonto an.</p>
+      <a href="./">Zu KlassenTools</a>
+    </main>
+    <section id="admin-dialog" hidden role="main" aria-labelledby="admin-title">
+      <form novalidate>
+        <a id="admin-back" href="./">← Zu KlassenTools</a
+        ><span class="eyebrow">ADMINISTRATION</span>
+        <h1 id="admin-title">Administration</h1>
+        <nav class="photo-tools" aria-label="Verwaltungsbereiche">
+          <button id="admin-classes-tab" type="button" aria-pressed="true">Klassenfreigaben</button
+          ><button id="admin-audit-tab" type="button" aria-pressed="false">Änderungsverlauf</button
+          ><button id="admin-usage-tab" type="button" aria-pressed="false">
+            Nutzungsstatistik
+          </button>
+          <button id="admin-companies-tab" type="button" aria-pressed="false">
+            Ausbildungsbetriebe</button
+          ><button id="admin-learning-tab" type="button" aria-pressed="false">
+            Lernen &amp; Betriebsverlauf
+          </button>
+        </nav>
+        <section id="admin-companies-panel" hidden></section>
+        <section id="admin-learning-panel" hidden></section>
+        <section id="admin-classes-panel">
+          <h2>Klassenfreigaben</h2>
+          <p>
+            Markieren Sie die Gruppen, die als Klassen verfügbar sein sollen. Lehrkräfte sehen nur
+            freigegebene Klassen, in denen sie selbst Mitglied sind.
+          </p>
+          <label for="admin-search">Gruppe suchen</label
+          ><input
+            id="admin-search"
+            type="search"
+            placeholder="Name oder Gruppenkennung"
+            autocomplete="off"
+          /><label class="check admin-filter"
+            ><input id="admin-only-selected" type="checkbox" /><span
+              >Nur ausgewählte Gruppen</span
+            ></label
+          >
+          <p id="admin-count"></p>
+          <div id="admin-groups" aria-label="IServ-Gruppen"></div>
+          <p id="admin-status" role="status"></p>
+          <div class="admin-buttons">
+            <button id="admin-reload" type="button">Neu laden</button
+            ><button type="button" data-admin-back>Zu KlassenTools</button
+            ><button id="admin-save" class="primary" type="button" disabled>
+              Auswahl speichern
+            </button>
+          </div>
+        </section>
+        <section id="admin-audit-panel" hidden>
+          <h2>Änderungsverlauf</h2>
+          <div class="audit-filters">
+            <label for="audit-class-search">Klassenauswahl filtern</label
+            ><input
+              id="audit-class-search"
+              type="search"
+              placeholder="Filtert die Klassenauswahl darunter"
+              autocomplete="off"
+            /><label class="check"
+              ><input id="audit-active" type="checkbox" checked /><span
+                >Nur freigegebene Klassen</span
+              ></label
+            ><label for="audit-class">Klasse</label
+            ><select id="audit-class">
+              <option value="">Alle Klassen</option></select
+            ><label for="audit-query">Im Änderungsverlauf suchen</label
+            ><input
+              id="audit-query"
+              type="search"
+              maxlength="120"
+              placeholder="Lehrkraft, Schülername, Sitzplan oder Aktion"
+              autocomplete="off"
+            />
+            <button id="audit-search-button" type="button">Suchen / neu laden</button>
+          </div>
+          <p id="audit-status" role="status"></p>
+          <div id="photo-audit" role="region" aria-label="Änderungsverlauf"></div>
+          <div class="admin-pagination">
+            <button id="previous-photo-audit" type="button" disabled>Zurück</button
+            ><span id="photo-audit-page" role="status"></span
+            ><button id="more-photo-audit" type="button" hidden>Weiter</button>
+          </div>
+          <div class="admin-buttons">
+            <button type="button" data-admin-back>Zu KlassenTools</button>
+          </div>
+        </section>
+        <section id="admin-usage-panel" hidden>
+          <h2>Nutzungsstatistik</h2>
+          <label for="usage-days">Zeitraum</label
+          ><select id="usage-days">
+            <option value="1">Letzte 24 Stunden</option>
+            <option value="7">Letzte 7 Tage</option>
+            <option value="30" selected>Letzte 30 Tage</option>
+            <option value="90">Letzte 90 Tage</option></select
+          ><button id="usage-reload" type="button">Aktualisieren</button>
+          <p>
+            Erfassung ab Einführung dieser Statistik. Aufrufe zählen das Laden der App, keine
+            einzelnen Bildabrufe. Eine Browsersitzung endet nach 30 Minuten ohne erfasste Aktivität
+            oder beim Wechsel der Anmeldung. Sitzungen sind keine eindeutigen Personen.
+          </p>
+          <p>
+            Lokale Fotoimporte: nur Anzahl, keine Bilder oder Dateinamen. Nutzungsereignisse werden
+            nach 90 Tagen gelöscht. Browsermeldungen können fehlen oder manipuliert sein; der
+            Änderungsverlauf dokumentiert separat gespeicherte Foto- und Sitzplanänderungen.
+          </p>
+          <p id="usage-status" role="status"></p>
+          <div id="usage-content"></div>
+          <div class="admin-buttons">
+            <button type="button" data-admin-back>Zu KlassenTools</button>
+          </div>
+        </section>
+      </form>
+    </section>
+    <section id="seat-print" aria-label="Sitzplan für den Ausdruck">
+      <img id="seat-print-image" alt="" />
+      <p id="seat-print-wait">
+        Die Druckansicht wird vorbereitet. Bitte schließen Sie die Druckvorschau und wählen Sie im
+        Sitzplan „Drucken“.
+      </p>
+    </section>
+  </body>
+</html>
