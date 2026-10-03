@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+uploads/
+data/
+*.sqlite
+*.sqlite-*
+*.log
+
+/klassen/
+
+/oidc/
+
+__pycache__/
+*.pyc

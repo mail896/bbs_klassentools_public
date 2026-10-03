@@ -1,0 +1,12 @@
+{
+  "name": "KlassenTools – REST-Lesezugriff",
+  "systemGroup": "root",
+  "systemOwner": "root",
+  "public": false,
+  "trusted": false,
+  "secretVisible": false,
+  "scopes": ["iserv:idm:api-read"],
+  "allowedGrantTypes": ["client_credentials"],
+  "redirectUris": [],
+  "allowedNetworks": ["192.0.2.103/32", "127.0.0.1/32", "::1/128"]
+}

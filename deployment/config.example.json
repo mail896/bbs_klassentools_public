@@ -1,0 +1,18 @@
+{
+  "clientId": "OIDC-CLIENT-ID",
+  "teacherRoleUuid": "BESTAETIGTE-TEACHER-UUID",
+  "studentRoleUuid": "BESTAETIGTE-STUDENT-UUID",
+  "idmEnabled": true,
+  "adminUserUuids": [
+    "ADMIN-KONTEN-UUID"
+  ],
+  "catalogPath": "/data/classes.json",
+  "classNames": [],
+  "photoDatabasePath": "/data/photos/photos.sqlite",
+  "trustedUsageNetworkHeader": true,
+  "schoolNetworks": [
+    "192.0.2.84",
+    "198.51.100.210",
+    "10.20.0.0/16"
+  ]
+}

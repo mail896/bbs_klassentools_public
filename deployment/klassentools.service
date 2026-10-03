@@ -1,0 +1,51 @@
+[Unit]
+Description=KlassenTools IServ login backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=klassentools
+Group=www-data
+RootDirectory=/var/lib/klassentools-jail
+BindReadOnlyPaths=/usr /opt/klassentools/node-v24.21.0-linux-x64:/runtime /opt/klassentools/backend/current:/app /etc/ssl/certs /etc/klassentools/hosts:/etc/hosts /etc/klassentools/config.json:/etc/klassentools/config.json
+BindPaths=/run/klassentools /var/lib/klassentools-data:/data
+ReadWritePaths=/data
+WorkingDirectory=/app
+ExecStart=/runtime/bin/node /app/server.mjs
+LoadCredential=idm-credentials:/srv/klassentools/oidc/idm-credentials.json
+LoadCredential=oidc-secret:/srv/klassentools/oidc/secret.txt
+RuntimeDirectory=klassentools
+RuntimeDirectoryMode=0750
+UMask=0007
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=192.0.2.10
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+MemoryMax=256M
+MemorySwapMax=0
+TasksMax=64
+CPUQuota=100%
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

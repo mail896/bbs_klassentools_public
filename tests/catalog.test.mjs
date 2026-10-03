@@ -1,0 +1,26 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { catalogStore } from '../backend/catalog.mjs';
+const a = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+test('catalog is durable, atomic, private and rejects stale writes and corrupt state', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'klassentools-catalog-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, 'classes.json');
+  assert.throws(() => catalogStore(path, { required: true }).read());
+  const store = catalogStore(path);
+  assert.deepEqual(store.read(), { revision: 'initial', selected: null });
+  const saved = store.save([a], 'initial');
+  assert.deepEqual(catalogStore(path).read(), saved);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  assert.equal(store.save([], 'initial'), null);
+  assert.deepEqual(store.read().selected, [a]);
+  assert.throws(() => store.save(['../secret'], saved.revision));
+  assert.throws(() => store.save([a, a], saved.revision));
+  assert.deepEqual(store.save([], saved.revision).selected, []);
+  writeFileSync(path, 'invalid');
+  assert.throws(() => store.read());
+  assert.throws(() => store.save([a], 'initial'));
+});
