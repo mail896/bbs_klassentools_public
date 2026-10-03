@@ -3,7 +3,7 @@
 [Deutsche Version](README.md) · [Project page & live demo](https://mail896.github.io/bbs_klassentools_public/)
 
 A classroom toolkit for random student selection, team assignment, playful name learning
-and visual seating plans. Developed for BBS Einbeck by Marc Schulz. Version **1.2.0**, October 3, 2026.
+and visual seating plans. Developed for BBS Einbeck by Marc Schulz. Version **1.2.9**, October 3, 2026.
 The interface is German. All demonstration names are fictional and portraits AI-generated.
 
 ## Try it

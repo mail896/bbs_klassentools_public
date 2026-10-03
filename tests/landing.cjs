@@ -4,6 +4,19 @@ const assert = require('node:assert/strict'),
 (async () => {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await page.addInitScript(() => {
+    window.entryAnimations = [];
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (frames, options) {
+      if (options?.id === 'class-entry')
+        window.entryAnimations.push({
+          options,
+          frames,
+          rect: this.getBoundingClientRect().toJSON(),
+        });
+      return animate.call(this, frames, options);
+    };
+  });
   let authenticated = false;
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -66,7 +79,30 @@ const assert = require('node:assert/strict'),
   assert.equal(await page.locator('#landing').isVisible(), false);
   assert.equal(await page.locator('#app-main').isVisible(), true);
   assert.equal(await page.locator('.person').count(), 24);
+  assert.equal(await page.evaluate(() => window.entryAnimations.length), 24);
+  const origins = await page.evaluate(() =>
+    window.entryAnimations.map(({ frames, rect }) => {
+      const matrix = new DOMMatrix(frames[0].transform);
+      return { x: rect.x + rect.width / 2 + matrix.m41, y: rect.y + rect.height / 2 + matrix.m42 };
+    }),
+  );
+  assert.ok(Math.max(...origins.map((p) => p.x)) - Math.min(...origins.map((p) => p.x)) <= 65);
+  assert.ok(Math.max(...origins.map((p) => p.y)) - Math.min(...origins.map((p) => p.y)) <= 20);
+  await page.click('#team-tab');
+  assert.equal(
+    await page.evaluate(
+      () => document.getAnimations().filter((a) => a.id === 'class-entry').length,
+    ),
+    0,
+  );
+  assert.equal(await page.evaluate(() => window.entryAnimations.length), 24);
   await page.reload();
+  assert.equal(await page.evaluate(() => window.entryAnimations.length), 0);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('https://apps.school.example/klassentools/');
+  await page.click('#landing-demo');
+  await page.waitForURL('**/?demo=1');
+  assert.equal(await page.evaluate(() => window.entryAnimations.length), 0);
   assert.equal(await page.locator('#app-main').isVisible(), true);
   authenticated = true;
   await page.goto('https://apps.school.example/klassentools/');
