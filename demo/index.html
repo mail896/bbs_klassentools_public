@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#111820" />
     <title>KlassenTools · BBS Einbeck</title>
     <link rel="icon" type="image/png" href="./dice-bbs.png?v=5fbdcce90496" />
-    <link rel="stylesheet" href="./style.css?v=6c4adf956bff" />
-    <script type="module" src="./app.js?v=0f330c31e6d5"></script>
+    <link rel="stylesheet" href="./style.css?v=177c631890b6" />
+    <script type="module" src="./app.js?v=f031743b42eb"></script>
   </head>
   <body class="entry-pending">
     <header>
@@ -60,6 +60,8 @@
               >Mit IServ anmelden <span aria-hidden="true">→</span></a
             ><a id="landing-demo" class="landing-secondary" href="./?demo=1"
               >Anonym mit DEMO-Klasse starten <span aria-hidden="true">→</span></a
+            ><a class="landing-secondary" href="./?demo=1&amp;local=1"
+              >Eigene Klasse ohne Anmeldung <span aria-hidden="true">→</span></a
             >
           </div>
           <p class="landing-access">
@@ -352,14 +354,40 @@
         ><span class="eyebrow">KLASSE & FOTOS</span>
         <h2 id="photo-title">Klassenfotos</h2>
         <p id="photo-intro">Fotos lokal ausprobieren oder einer IServ-Klasse zuordnen.</p>
+        <section id="local-class-choice" hidden>
+          <p>
+            Die DEMO-Klasse bleibt unverändert. Erstellen Sie stattdessen eine eigene lokale Klasse.
+          </p>
+          <button id="local-class-new" type="button" class="primary">
+            Eigene Klasse ohne Anmeldung
+          </button>
+        </section>
+        <section id="local-class-editor" hidden>
+          <h3>Eigene lokale Klasse</h3>
+          <p>
+            Nur in diesem Browserfenster. Kein Upload. Beim Neuladen werden die Daten verworfen.
+          </p>
+          <input
+            id="local-person-photo"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            hidden
+          />
+          <div id="local-class-roster"></div>
+          <label for="local-class-names">Namen ohne Foto hinzufügen – eine Person pro Zeile</label>
+          <textarea id="local-class-names" rows="4" placeholder="Vorname Nachname"></textarea>
+          <button id="local-class-apply" type="button" class="primary">Klasse übernehmen</button>
+          <p id="local-class-status" role="status"></p>
+        </section>
+        <button id="local-class-back" type="button" hidden>Zurück zur DEMO</button>
         <div class="upload-preview">
-          <label for="local-files">Fotos auswählen</label
+          <label for="local-files">Einzelne <b>Fotos</b> auswählen</label
           ><input
             id="local-files"
             type="file"
             accept="image/png,image/jpeg,image/webp"
             multiple
-          /><label for="local-photos">Oder einen ganzen Ordner auswählen</label
+          /><label for="local-photos">Oder einen ganzen <b>Ordner</b> auswählen</label
           ><input
             id="local-photos"
             type="file"
@@ -367,7 +395,7 @@
             multiple
             webkitdirectory
           />
-          <p class="help">
+          <p class="help" id="photo-file-help">
             Dateinamen: Vorname Nachname oder Nachname Vorname. Auch Komma, Punkt, Bindestrich und
             Unterstrich als Trennzeichen werden erkannt. Maximal 60 Fotos, je 10 MB. Unsichere
             Zuordnungen bitte prüfen. Über „Ausschnitt“ können Sie jedes Foto anpassen.

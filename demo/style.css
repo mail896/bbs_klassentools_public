@@ -4480,3 +4480,77 @@ html {
     transition: none;
   }
 }
+
+.local-roster-row {
+  position: relative;
+  padding-right: 52px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+.local-roster-row img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.local-roster-row label {
+  flex: 1 1 140px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.local-roster-row input,
+#local-class-names {
+  width: 100%;
+  box-sizing: border-box;
+  background: #202a35;
+  color: inherit;
+  padding: 10px;
+  border: 1px solid var(--line, #ccd2d8);
+  border-radius: 8px;
+}
+#local-class-names {
+  display: block;
+  margin: 8px 0 16px;
+}
+
+:root[data-theme='light'] .local-roster-row input,
+:root[data-theme='light'] #local-class-names {
+  background: white;
+}
+
+.local-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#management #cancel-photos {
+  margin-top: 20px;
+}
+
+.upload-preview label[for='local-photos'] {
+  display: block;
+  margin-top: 24px;
+}
+.local-roster-row .local-person-remove {
+  position: absolute;
+  top: 20px;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: #ff9292;
+  background: transparent;
+  border: 0;
+  font-size: 28px;
+  line-height: 1;
+}
+:root[data-theme='light'] .local-roster-row .local-person-remove {
+  color: #b42318;
+}
+.local-roster-row .local-person-remove:hover {
+  background: rgb(180 35 24 / 10%);
+}
