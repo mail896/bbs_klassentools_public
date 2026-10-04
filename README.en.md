@@ -10,7 +10,10 @@ The interface is German. All demonstration names are fictional and portraits AI-
 
 [Open the interactive demo](https://mail896.github.io/bbs_klassentools_public/demo/?demo=1).
 No account required. The static demo runs locally in the browser without an application
-backend. Local test photos are not uploaded. Seating drafts last until the page reloads.
+backend. Choose “Eigene Klasse ohne Anmeldung” to create a separate local class from
+names and photos, including folder imports. Assign, replace or remove individual photos
+regardless of their filenames. The fixed demo remains unchanged. Your local names, photos,
+learning progress and seating drafts stay in the browser until reload; they are not uploaded.
 
 ## Four tools
 

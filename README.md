@@ -18,8 +18,11 @@ Gestalten von Sitzplänen – anschaulich mit Fotos und einer Portion Spannung.
 **[Zur spielbaren DEMO →](https://mail896.github.io/bbs_klassentools_public/demo/?demo=1)**
 
 Keine Anmeldung nötig. Einzelauswahl, Teams, Namen lernen und Sitzplan laufen im Browser.
-Lokale Testfotos werden nicht hochgeladen. Sitzplanentwürfe sind in der öffentlichen
-Demo nur bis zum Neuladen verfügbar. Dauerhaft gespeicherte Klassen gehören zur
+Über „Eigene Klasse ohne Anmeldung“ können Sie eine separate Klasse aus Namen und
+Fotos anlegen, auch per Ordnerimport. Fotos lassen sich später unabhängig vom Dateinamen
+zuordnen, ersetzen oder entfernen. Die feste DEMO bleibt unverändert. Eigene Namen,
+Fotos, Lernfortschritte und Sitzplanentwürfe bleiben nur bis zum Neuladen im Browser;
+sie werden nicht hochgeladen. Dauerhaft gespeicherte Klassen gehören zur
 separat installierten, geschützten Serverversion.
 
 ## Die vier Funktionen

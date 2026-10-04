@@ -1,4 +1,4 @@
-import { createLearningUI } from './learning-ui.mjs?v=4366e0ebc588';
+import { createLearningUI } from './learning-ui.mjs?v=5398dfa11e76';
 import { colors, demoPeople } from './demo.mjs?v=9e9fedd7f899';
 import { matchPhotos } from './photo-matching.mjs?v=7aed189788e4';
 import { shuffle, groupSizes, draw, drawChances } from './logic.mjs?v=ff3b470a050d';
@@ -148,7 +148,7 @@ const seatingContext = {
 let adminUI = null;
 let adminLoading = null;
 async function openAdministration() {
-  adminLoading ??= import('./administration-ui.mjs?v=c76fe4b9b40b')
+  adminLoading ??= import('./administration-ui.mjs?v=c21948102b6d')
     .then(({ createAdministrationUI }) => {
       adminUI = createAdministrationUI(adminContext);
       return adminUI;
@@ -184,6 +184,9 @@ $('admin-open').onclick = () => {
 let learningUI = null;
 let people = demoPeople();
 let localClass = false;
+let localDraft = null,
+  localDraftInitial = '',
+  localPhotoTarget = null;
 let selectedClass = '',
   classRequest = 0,
   classLoading = false;
@@ -200,12 +203,27 @@ function clearPhotoReview() {
   $('crop-dialog').close();
   cropState = null;
 }
-$('management').addEventListener('close', clearPhotoReview);
+function clearLocalDraft() {
+  localDraft = null;
+  localDraftInitial = '';
+  localPhotoTarget = null;
+  $('local-class-names').value = '';
+  $('local-class-roster').replaceChildren();
+}
+$('management').addEventListener('close', () => {
+  clearPhotoReview();
+  clearLocalDraft();
+});
 $('management')
   .querySelector('form')
   .addEventListener('submit', (event) => event.preventDefault());
 $('management').querySelector('.close').type = 'button';
 function photoReviewDirty() {
+  if (
+    localDraft &&
+    (JSON.stringify(localDraft) !== localDraftInitial || $('local-class-names').value.trim())
+  )
+    return true;
   return !!pendingPhotos?.files.some((file, index) => {
     const selected = $('photo-review').querySelector(`[data-photo-index="${index}"]`)?.value;
     const member = people.find((p) => String(p.id) === selected)?.memberId || '';
@@ -814,10 +832,15 @@ $('fullscreen').onclick = async () => {
 };
 $('manage').onclick = async () => {
   clearPhotoReview();
+  localDraft = localClass && !selectedClass ? people.map((p) => ({ ...p })) : null;
+  localDraftInitial = JSON.stringify(localDraft);
+  $('local-class-names').value = '';
+  $('local-class-status').textContent = '';
+  renderLocalDraft();
   $('import-status').textContent = '';
   updatePhotoManagement();
   $('management').showModal();
-  learningUI?.manageCompanies();
+  if (selectedClass) learningUI?.manageCompanies();
   if (photoState.enabled) {
     setPhotoBusy(true);
     try {
@@ -834,13 +857,183 @@ $('manage').onclick = async () => {
 render();
 animateClassEntrance();
 
-$('local-files').onchange = $('local-photos').onchange = async (event) => {
-  if (photoBusy) return;
-  const files = [...event.target.files].filter((f) => /\.(png|jpe?g|webp)$/i.test(f.name));
-  if (!files.length || files.length > 60) {
-    $('import-status').textContent = 'Bitte 1 bis 60 PNG-, JPEG- oder WebP-Bilder auswählen.';
+async function prepareLocalPhoto(file) {
+  if (file.size > 10 * 1024 * 1024)
+    throw new Error('Ein Bild ist größer als 10 MB. Bitte verkleinern.');
+  const raw = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Bild konnte nicht gelesen werden.'));
+    reader.readAsDataURL(file);
+  });
+  const img = new Image();
+  img.src = raw;
+  await img.decode();
+  if (img.width * img.height > 20000000)
+    throw new Error('Ein Bild hat mehr als 20 Megapixel. Bitte verkleinern.');
+  const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#e5e9ed';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const crop = { x: 0.5, y: 0.35, zoom: 1, fit: false };
+  return { source: canvas.toDataURL('image/jpeg', 0.9), crop, photo: makePortrait(img, crop) };
+}
+function renderLocalDraft() {
+  $('local-class-roster').innerHTML = (localDraft || [])
+    .map(
+      (p, i) =>
+        `<div class="local-roster-row">${p.photo ? `<img src="${p.photo}" alt="">` : '<span>Ohne Foto</span>'}<label>Vorname<input data-local-first="${i}" value="${escapeHTML(p.first)}"></label><label>Nachname<input data-local-last="${i}" value="${escapeHTML(p.last)}"></label><div class="local-photo-actions"><button type="button" data-local-photo="${i}">${p.photo ? 'Foto ersetzen' : 'Foto hinzufügen'}</button>${p.photo ? `<button type="button" data-local-photo-remove="${i}">Foto entfernen</button>` : ''}</div><button type="button" class="local-person-remove" data-local-remove="${i}" title="Person entfernen" aria-label="Person entfernen">×</button></div>`,
+    )
+    .join('');
+}
+$('local-class-roster').oninput = (event) => {
+  const el = event.target;
+  if (el.dataset.localFirst !== undefined)
+    localDraft[Number(el.dataset.localFirst)].first = el.value;
+  if (el.dataset.localLast !== undefined) localDraft[Number(el.dataset.localLast)].last = el.value;
+};
+$('local-class-roster').onclick = (event) => {
+  if (photoBusy || !localDraft) return;
+  const button = event.target.closest('button');
+  if (!button) return;
+  if (button.dataset.localPhoto !== undefined) {
+    localPhotoTarget = { draft: localDraft, person: localDraft[Number(button.dataset.localPhoto)] };
+    $('local-person-photo').click();
     return;
   }
+  if (button.dataset.localPhotoRemove !== undefined) {
+    const person = localDraft[Number(button.dataset.localPhotoRemove)];
+    delete person.photo;
+    delete person.source;
+    delete person.crop;
+    $('local-class-status').textContent =
+      'Foto entfernt. Die Person bleibt erhalten. Bitte mit „Klasse übernehmen“ bestätigen.';
+  } else if (button.dataset.localRemove !== undefined) {
+    localDraft.splice(Number(button.dataset.localRemove), 1);
+  }
+  renderLocalDraft();
+};
+$('local-person-photo').onchange = async (event) => {
+  const target = localPhotoTarget,
+    file = event.target.files[0];
+  localPhotoTarget = null;
+  if (
+    !file ||
+    photoBusy ||
+    selectedClass ||
+    !target ||
+    target.draft !== localDraft ||
+    !localDraft.includes(target.person)
+  )
+    return;
+  setPhotoBusy(true);
+  $('local-class-status').textContent = 'Foto wird lokal vorbereitet …';
+  try {
+    const photo = await prepareLocalPhoto(file);
+    if (
+      selectedClass ||
+      target.draft !== localDraft ||
+      !localDraft.includes(target.person) ||
+      !$('management').open
+    )
+      return;
+    Object.assign(target.person, photo);
+    renderLocalDraft();
+    $('local-class-status').textContent =
+      `Foto für ${target.person.first} ${target.person.last} vorbereitet. Bitte mit „Klasse übernehmen“ bestätigen.`;
+  } catch (e) {
+    $('local-class-status').textContent =
+      'Foto nicht übernommen: ' + (e.message || 'Bild konnte nicht gelesen werden.');
+  } finally {
+    event.target.value = '';
+    setPhotoBusy(false);
+  }
+};
+$('local-class-new').onclick = () => {
+  localDraft = [];
+  localDraftInitial = '[]';
+  renderLocalDraft();
+  updatePhotoManagement();
+};
+$('local-class-back').onclick = () => {
+  if (photoBusy) return;
+  if (
+    (localClass || photoReviewDirty()) &&
+    !confirm('Lokale Klasse und Eingaben verwerfen und zur DEMO zurückkehren?')
+  )
+    return;
+  resetDemo();
+  $('management').close();
+  if (mode === 'learning') learningUI?.open();
+};
+$('local-class-apply').onclick = () => {
+  if (!localDraft || selectedClass || photoBusy) return;
+  const added = $('local-class-names')
+    .value.split(/\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((name) => {
+      const [first, ...last] = name.split(/\s+/);
+      return { first, last: last.join(' ') };
+    });
+  const next = [...localDraft, ...added];
+  if (!next.length || next.length > 60 || next.some((p) => !p.first.trim())) {
+    $('local-class-status').textContent =
+      'Bitte 1 bis 60 Personen mit mindestens einem Vornamen angeben.';
+    return;
+  }
+  learningUI?.reset();
+  seatingUI?.reset();
+  classRequest++;
+  localClass = true;
+  people = next.map((p, id) => ({
+    ...p,
+    id,
+    first: p.first.trim(),
+    last: p.last.trim(),
+    color: colors[id % colors.length],
+  }));
+  localDraft = null;
+  $('local-class-names').value = '';
+  seen = [];
+  absent.clear();
+  result = null;
+  $('class-select').value = '';
+  $('class-select').options[0].text = 'Eigene lokale Klasse';
+  $('class-name').textContent = 'Eigene lokale Klasse';
+  $('class-status').textContent = 'Nur in diesem Browserfenster';
+  $('class-total').textContent = people.length + ' Schülerinnen und Schüler';
+  $('attendance-total').textContent = ' / ' + people.length + ' anwesend';
+  document.querySelector('.local-note').textContent =
+    'Eigene lokale Klasse: kein Upload. Neuladen verwirft Fotos und Namen.';
+  $('pick-count').value = 1;
+  $('team-count').value = Math.max(1, Math.min(4, Math.floor(people.length / 2)));
+  $('management').close();
+  render();
+  trackUsage('local_import', people.length);
+  if (mode === 'learning') learningUI?.open();
+};
+
+$('local-files').onchange = $('local-photos').onchange = async (event) => {
+  if (photoBusy) return;
+  if (!selectedClass && !localDraft) return;
+  const selectedFiles = [...event.target.files];
+  const files = selectedFiles.filter(
+    (f) =>
+      !f.name.startsWith('.') &&
+      (/\.(png|jpe?g|webp)$/i.test(f.name.trim()) || /^image\/(jpeg|png|webp)$/i.test(f.type)),
+  );
+  if (!files.length || files.length > 60) {
+    $('import-status').textContent =
+      `${selectedFiles.length} Dateien ausgewählt, ${files.length} unterstützte Bilder erkannt. Bitte 1 bis 60 JPG/JPEG-, PNG- oder WebP-Bilder auswählen. Andere Dateien werden ausgelassen.`;
+    event.target.value = '';
+    return;
+  }
+  setPhotoBusy(true);
   $('import-status').textContent = 'Bilder werden lokal geprüft …';
   const imported = [];
   const targetClass = selectedClass,
@@ -850,38 +1043,14 @@ $('local-files').onchange = $('local-photos').onchange = async (event) => {
     for (const file of files) {
       $('import-status').textContent =
         `Foto ${imported.length + 1} von ${files.length} wird vorbereitet …`;
-      if (file.size > 10 * 1024 * 1024)
-        throw new Error('Ein Bild ist größer als 10 MB. Bitte verkleinern.');
-      const base = file.name.replace(/\.[^.]+$/, '');
-      let first, last;
-      if (base.includes('_')) {
-        [last, ...first] = base.split('_');
-        first = first.join(' ');
-      } else {
-        [first, ...last] = base.split('.');
-        last = last.join(' ');
-      }
-      if (!targetClass && (!first || !last))
-        throw new Error('Dateinamen bitte als vorname.nachname oder Nachname_Vorname angeben.');
-      const raw = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Bild konnte nicht gelesen werden.'));
-        reader.readAsDataURL(file);
-      });
-      const img = new Image();
-      img.src = raw;
-      await img.decode();
-      if (img.width * img.height > 20000000)
-        throw new Error('Ein Bild hat mehr als 20 Megapixel. Bitte verkleinern.');
-      // Re-encode locally: bound memory and discard embedded metadata before display.
-      const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
-      canvas.getContext('2d').fillStyle = '#e5e9ed';
-      canvas.getContext('2d').fillRect(0, 0, canvas.width, canvas.height);
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      const base = file.name.trim().replace(/\.[^.]+$/, '');
+      const normalized =
+        base.includes('_') || base.includes(',')
+          ? base.split(/[_,]/).slice(1).join(' ') + ' ' + base.split(/[_,]/)[0]
+          : base.replace(/\./g, ' ');
+      const [first = '', ...rest] = normalized.trim().split(/\s+/);
+      const last = rest.join(' ');
+      const photo = await prepareLocalPhoto(file);
       const id = imported.length;
       imported.push({
         id,
@@ -890,9 +1059,7 @@ $('local-files').onchange = $('local-photos').onchange = async (event) => {
         last,
 
         color: colors[id % colors.length],
-        source: canvas.toDataURL('image/jpeg', 0.9),
-        crop: { x: 0.5, y: 0.35, zoom: 1, fit: false },
-        photo: makePortrait(img, { x: 0.5, y: 0.35, zoom: 1, fit: false }),
+        ...photo,
       });
     }
     if (targetRequest !== classRequest || targetClass !== selectedClass || !$('management').open)
@@ -901,31 +1068,20 @@ $('local-files').onchange = $('local-photos').onchange = async (event) => {
       showPhotoReview(imported, targetRequest, targetClass);
       return;
     }
-    selectedClass = '';
-    classRequest++;
-    $('class-select').value = '';
-    $('class-status').textContent = '';
-    localClass = true;
-    people = imported;
-    seen = [];
-    absent.clear();
-    result = null;
-    $('class-select').options[0].text = 'Lokale Testklasse (TEMP)';
-    $('class-name').textContent = 'Lokale Testklasse';
-    $('class-total').textContent = people.length + ' Schülerinnen und Schüler';
-    $('attendance-total').textContent = ' / ' + people.length + ' anwesend';
-    document.querySelector('.local-note').textContent =
-      'Lokale Fotos und Namen werden nicht hochgeladen oder gespeichert. Neuladen beendet den Fototest.';
-    $('pick-count').value = 1;
-    $('team-count').value = Math.min(4, Math.floor(people.length / 2));
-    $('management').close();
-    render();
-    trackUsage('local_import', imported.length);
+    if (localDraft.length + imported.length > 60)
+      throw new Error('Die lokale Klasse kann höchstens 60 Personen enthalten.');
+    localDraft.push(...imported);
+    renderLocalDraft();
+    $('import-status').textContent =
+      `${imported.length} Fotos vorbereitet. Bitte Namen prüfen und mit „Klasse übernehmen“ bestätigen.${selectedFiles.length > files.length ? ` ${selectedFiles.length - files.length} andere Dateien ausgelassen.` : ''}`;
+    $('local-class-editor').scrollIntoView({ block: 'start' });
   } catch (e) {
-    $('import-status').textContent = e.message || 'Ein Bild konnte nicht gelesen werden.';
+    $('import-status').textContent =
+      `Import nicht übernommen (${files[imported.length]?.name || 'Auswahl'}): ${e.message || 'Bild konnte nicht gelesen werden.'}`;
     $('import-status').scrollIntoView({ block: 'center' });
   } finally {
     event.target.value = '';
+    setPhotoBusy(false);
   }
 };
 
@@ -1132,6 +1288,12 @@ $('logout').onclick = async () => {
 };
 const loginResult = entryParams.get('login');
 const initialSession = loadSession();
+if (entryParams.get('local') === '1')
+  void initialSession.then(async () => {
+    if (selectedClass) return;
+    await $('manage').onclick();
+    $('local-class-new').click();
+  });
 initialSession.then(() => {
   if (!adminPage) trackUsage('view');
   if (loginResult) {
@@ -1171,6 +1333,7 @@ initialSession.then(() => {
 });
 
 function resetDemo() {
+  clearLocalDraft();
   learningUI?.reset();
   seatingUI?.clearSelection();
   $('seat-tables').replaceChildren();
@@ -1209,7 +1372,7 @@ async function loadClasses() {
     if (!data.classes.some((g) => g.id === id)) classMembers.delete(id);
   $('iserv-classes').hidden = false;
   $('class-select').replaceChildren(
-    new Option(localClass && !selectedClass ? 'Lokale Testklasse (TEMP)' : 'DEMO-Klasse', ''),
+    new Option(localClass && !selectedClass ? 'Eigene lokale Klasse' : 'DEMO-Klasse', ''),
     ...data.classes.map((g) => new Option(g.name, g.id)),
   );
   if (selectedClass && !data.classes.some((g) => g.id === selectedClass)) {
@@ -1871,14 +2034,25 @@ async function refreshPhotos() {
   render();
 }
 function updatePhotoManagement() {
+  $('cancel-photos').hidden = !selectedClass && !localDraft;
+  $('local-class-choice').hidden = !!selectedClass || !!localDraft;
+  $('local-class-editor').hidden = !!selectedClass || !localDraft;
+  $('local-class-back').hidden = !!selectedClass || !(localClass || localDraft);
+  document.querySelector('.upload-preview').hidden = !selectedClass && !localDraft;
+  $('company-assignment').hidden = !selectedClass;
+  $('photo-file-help').textContent = selectedClass
+    ? 'Dateinamen: Vorname Nachname oder Nachname Vorname; Komma, Punkt, Bindestrich und Unterstrich werden erkannt. Maximal 60 Fotos, je 10 MB. Zuordnung und Ausschnitt bitte prüfen.'
+    : 'JPG/JPEG, PNG oder WebP, je höchstens 10 MB. Dateinamen werden als Namensvorschlag übernommen (z. B. Vorname.Nachname oder Nachname_Vorname). Bitte vor dem Übernehmen prüfen und korrigieren.';
   $('photo-title').textContent = selectedClass
     ? 'Fotos · ' + $('class-name').textContent
-    : 'Lokaler Fototest';
+    : localDraft
+      ? 'Eigene Klasse ohne Anmeldung'
+      : 'DEMO-Klasse';
   $('photo-intro').textContent = photoState.enabled
     ? 'Fotos werden nach Bestätigung für diese Klasse gespeichert. Andere berechtigte Lehrkräfte sehen dieselben Fotos. Änderungen werden protokolliert.'
     : selectedClass
       ? 'Fotos werden dieser Klasse nur für die aktuelle Sitzung zugeordnet.'
-      : 'Fotos und Namen bleiben nur in diesem Browserfenster. Neuladen beendet den Fototest; es erfolgt kein Upload.';
+      : 'Die feste DEMO enthält fiktive Personen. Eigene Fotos und Namen verwenden Sie in einer separaten lokalen Klasse ohne Upload.';
   $('stored-photos').hidden = !photoState.enabled;
   const stored = people.filter((p) => p.photoVersion);
   $('stored-photo-count').textContent =
@@ -1983,7 +2157,7 @@ $('delete-selected-photos').onclick = () => deletePhotos(false);
 $('delete-all-photos').onclick = () => deletePhotos(true);
 
 function leaveLearning() {
-  if (mode === 'learning') learningUI?.reset();
+  if (mode === 'learning') learningUI?.reset({ keepLocalProgress: true });
   document.body.classList.remove('learning-mode');
   $('learning-panel').hidden = true;
   $('learn-tab').setAttribute('aria-selected', 'false');

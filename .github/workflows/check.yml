@@ -17,4 +17,5 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - run: npm run pages:build
+      - run: node tests/pages-local.cjs
       - run: node scripts/screenshots.mjs

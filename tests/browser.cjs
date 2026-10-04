@@ -213,11 +213,15 @@ const fs = require('node:fs'),
   page.on('request', (r) => {
     if (r.url().startsWith('http')) requests.push({ url: r.url(), body: r.postDataJSON() });
   });
+  await page.click('#local-class-new');
   await page
     .locator('#local-files')
     .setInputFiles(fs.readdirSync(fixture).map((name) => path.join(fixture, name)));
+  await page.locator('[data-local-first="3"]').waitFor();
+  await page.waitForFunction(() => !document.querySelector('#local-files').disabled);
+  await page.click('#local-class-apply');
   await page.waitForFunction(() => document.querySelectorAll('.portrait img').length === 4);
-  assert.equal(await page.locator('#class-name').innerText(), 'Lokale Testklasse');
+  assert.equal(await page.locator('#class-name').innerText(), 'Eigene lokale Klasse');
   assert.equal(
     await page
       .locator('.portrait img')
@@ -231,6 +235,21 @@ const fs = require('node:fs'),
   await page.locator('#team-tab').click();
   await page.locator('#start').click();
   assert.equal(await page.locator('.team-person img').count(), 4);
+  await page.click('#learn-tab');
+  await page.selectOption('#learn-mode', 'cards');
+  await page.click('#learn-start');
+  await page.click('#learn-flip');
+  await page.waitForFunction(
+    () => document.querySelector('#learn-flip').getAttribute('aria-pressed') === 'true',
+  );
+  await page.click('#learn-finish');
+  assert.match(await page.locator('#learn-progress').textContent(), /^1 Namen angesehen/);
+  await page.click('#pick-tab');
+  await page.click('#learn-tab');
+  assert.match(await page.locator('#learn-progress').textContent(), /^1 Namen angesehen/);
+  assert.match(await page.locator('#learn-storage').textContent(), /Eigene lokale Klasse/);
+  await page.click('#pick-tab');
+
   assert.ok(
     requests.every((r) => r.url.endsWith('/api/usage')),
     'local photo test only sends usage counters',
@@ -248,15 +267,20 @@ const fs = require('node:fs'),
   await page.reload();
   assert.equal(await page.locator('.person').count(), 24);
   assert.equal(await page.locator('.portrait img').count(), 0);
+  assert.equal(await page.locator('#local-class-roster img').count(), 0);
   for (let i = 4; i < 30; i++)
     fs.copyFileSync(
       path.join(__dirname, '../public/dice-bbs.png'),
       path.join(fixture, `Test${i}.Person.png`),
     );
   await page.locator('#manage').click();
+  await page.click('#local-class-new');
   await page
     .locator('#local-files')
     .setInputFiles(fs.readdirSync(fixture).map((name) => path.join(fixture, name)));
+  await page.locator('[data-local-first="29"]').waitFor();
+  await page.waitForFunction(() => !document.querySelector('#local-files').disabled);
+  await page.click('#local-class-apply');
   await page.waitForFunction(() => document.querySelectorAll('.portrait img').length === 30);
   assert.equal(
     await page
@@ -273,6 +297,102 @@ const fs = require('node:fs'),
     '30 tiles fit in desktop viewport',
   );
   await page.screenshot({ path: '/tmp/klassentools-30-synthetic.png', fullPage: true });
+  await page.locator('#manage').click();
+  page.once('dialog', (d) => d.accept());
+  await page.click('#local-class-back');
+  assert.equal(await page.locator('.person').count(), 24);
+  await page.click('#learn-tab');
+  await page.selectOption('#learn-mode', 'cards');
+  assert.match(await page.locator('#learn-progress').textContent(), /^0 Namen angesehen/);
+  await page.click('#pick-tab');
+
+  await page.locator('#manage').click();
+  assert.equal(await page.locator('#local-files').isVisible(), false);
+  assert.equal(await page.locator('#cancel-photos').isVisible(), false);
+  assert.equal(await page.locator('#company-assignment').isVisible(), false);
+  await page.click('#local-class-new');
+  const sharp = require('../backend/node_modules/sharp');
+  const jpg = await sharp({ create: { width: 32, height: 32, channels: 3, background: '#808080' } })
+    .jpeg()
+    .toBuffer();
+  await page
+    .locator('#local-files')
+    .setInputFiles([{ name: 'Jana.Beispiel.JPG', mimeType: 'image/jpeg', buffer: jpg }]);
+  await page.locator('[data-local-first="0"]').waitFor();
+  assert.equal(await page.locator('[data-local-first="0"]').inputValue(), 'Jana');
+  await page.fill('[data-local-last="0"]', 'Testname');
+  await page.fill('#local-class-names', 'Alex Muster');
+  await page.waitForFunction(() => !document.querySelector('#local-files').disabled);
+  await page.click('#local-class-apply');
+  assert.equal(await page.locator('.person').count(), 2);
+  assert.equal(await page.locator('#grid .avatar-placeholder').count(), 1);
+  assert.match(await page.locator('#grid').innerText(), /Testname/);
+  assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes('Testname')), false);
+  await page.click('#manage');
+  assert.equal(await page.locator('#cancel-photos').isVisible(), true);
+  const choosePhoto = async (file) => {
+    const choosing = page.waitForEvent('filechooser');
+    await page.click('[data-local-photo="1"]');
+    await (await choosing).setFiles(file);
+    await page.waitForFunction(() => !document.querySelector('#local-files').disabled);
+  };
+  await choosePhoto({ name: 'unpassender-dateiname.JPG', mimeType: 'image/jpeg', buffer: jpg });
+  await page.waitForFunction(() =>
+    document.querySelector('#local-class-status').textContent.includes('vorbereitet. Bitte'),
+  );
+  assert.equal(await page.locator('.local-roster-row').count(), 2);
+  assert.equal(await page.locator('[data-local-first="1"]').inputValue(), 'Alex');
+  assert.equal(await page.locator('#grid .avatar-placeholder').count(), 1);
+  await page.click('#local-class-apply');
+  assert.equal(await page.locator('#grid .avatar-placeholder').count(), 0);
+  await page.click('#manage');
+  const previous = await page.locator('.local-roster-row img').nth(1).getAttribute('src');
+  const replacement = await sharp({
+    create: { width: 32, height: 32, channels: 3, background: '#ff0000' },
+  })
+    .jpeg()
+    .toBuffer();
+  await choosePhoto({ name: 'ersatz.jpg', mimeType: 'image/jpeg', buffer: replacement });
+  await page.waitForFunction(() =>
+    document.querySelector('#local-class-status').textContent.includes('vorbereitet. Bitte'),
+  );
+  assert.notEqual(await page.locator('.local-roster-row img').nth(1).getAttribute('src'), previous);
+  page.once('dialog', (d) => d.accept());
+  await page.click('#cancel-photos');
+  await page.waitForFunction(
+    () => document.querySelector('#local-class-roster').children.length === 0,
+  );
+  await page.click('#manage');
+  assert.equal(await page.locator('.local-roster-row img').nth(1).getAttribute('src'), previous);
+  await choosePhoto({
+    name: 'kaputt.jpg',
+    mimeType: 'image/jpeg',
+    buffer: Buffer.from('kein Bild'),
+  });
+  await page.waitForFunction(() =>
+    document.querySelector('#local-class-status').textContent.includes('Foto nicht übernommen'),
+  );
+  assert.equal(await page.locator('.local-roster-row img').nth(1).getAttribute('src'), previous);
+  await page.click('[data-local-photo-remove="1"]');
+  assert.equal(await page.locator('[data-local-first="1"]').inputValue(), 'Alex');
+  await page.click('#local-class-apply');
+  assert.equal(await page.locator('.person').count(), 2);
+  assert.equal(await page.locator('#grid .avatar-placeholder').count(), 1);
+
+  await page.reload();
+  assert.equal(await page.locator('.person').count(), 24);
+  await page.locator('#manage').click();
+  await page.click('#local-class-new');
+  fs.writeFileSync(path.join(fixture, 'Jana.Beispiel.JPG'), jpg);
+  await page.locator('#local-photos').setInputFiles(fixture);
+  await page.locator('[data-local-first="30"]').waitFor();
+  assert.equal(await page.locator('.local-roster-row').count(), 31);
+  await page.waitForFunction(() => !document.querySelector('#local-files').disabled);
+  page.once('dialog', (d) => d.accept());
+  await page.click('#cancel-photos');
+  await page.waitForFunction(
+    () => document.querySelector('#local-class-roster').children.length === 0,
+  );
   fs.rmSync(fixture, { recursive: true });
   assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
   assert.deepEqual(errors, []);

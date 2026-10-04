@@ -459,12 +459,13 @@ export function createLearningUI({
       status('Ihr Lernfortschritt wurde zurückgesetzt.');
     });
   };
-  function reset() {
+  function reset({ keepLocalProgress = false } = {}) {
+    const retained = keepLocalProgress && context().local && !context().group ? progress : {};
     epoch++;
     busy = false;
     round = null;
     localRound = null;
-    progress = {};
+    progress = retained;
     companyGeneration++;
     clearInterval(tick);
     clearInterval(questionTick);
@@ -479,11 +480,13 @@ export function createLearningUI({
     render();
   }
   async function open() {
-    reset();
+    reset({ keepLocalProgress: true });
     const version = epoch;
     $('learn-storage').textContent = context().group
       ? 'Ihr Fortschritt wird privat für Ihr IServ-Konto gespeichert.'
-      : 'DEMO: Fortschritt nur in diesem Browser. Lokale Fototests werden nicht dauerhaft gespeichert.';
+      : context().local
+        ? 'Eigene lokale Klasse: Fortschritt nur in diesem Browserfenster. Neuladen verwirft ihn.'
+        : 'DEMO: Fortschritt nur in diesem Browser.';
     try {
       if (context().group) {
         busy = true;
