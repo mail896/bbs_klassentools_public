@@ -3,7 +3,20 @@
 „Namen lernen“ ist der dritte Hauptbereich, zwischen Teams und Sitzplan. Bestehende Fotos werden
 wiederverwendet; keine Gesichtserkennung und kein zusätzlicher externer Dienst.
 
-## Lernrunden
+## Lernen und Quiz
+
+**Lernen** ist vorausgewählt: ohne Zeitdruck üben und Rückmeldungen in Ruhe lesen.
+Nach Antworten geht es manuell weiter. Karteikarten wechseln nach dem Zurückdrehen.
+**Quiz** bietet Auswahlfragen, Ausbildungsbetriebe und Namenseingabe mit Countdown:
+5 Sekunden für Namen/Fotos, 10 Sekunden für Betriebe, 20 Sekunden für Eintippen.
+Zeitablauf zählt als falsche Antwort. Nach zwei Sekunden Rückmeldung geht es automatisch
+weiter; die Gesamtzeit einer 60-Sekunden-Runde pausiert während der Rückmeldung.
+Falsche Antworten lassen sich anschließend gezielt mit Karteikarten wiederholen.
+Persönlicher Fortschritt wird in beiden Bereichen gespeichert. Nur Quizrunden werden
+im administrativen Rundenprotokoll geführt und können eine Ranglistenwertung erhalten.
+Neue Quizwertungen mit Antwortfristen werden getrennt von früheren Wertungen verglichen.
+
+## Übungsarten
 
 - Foto → Name und Name → Foto: bis zu vier Antwortmöglichkeiten, bei kleinen
   Klassen entsprechend weniger. Gleiche Vornamen werden vollständig angezeigt.
@@ -44,7 +57,7 @@ Mitglied, Lernmodus und Namensumfang. Andere Lehrkräfte erhalten keinen Zugriff
 auf diesen individuellen Fortschritt. Zurücksetzen löscht nur den eigenen Stand
 und laufende Runden. Die bereits protokollierten Runden bleiben bis zur Löschfrist.
 
-Administration → Lernen & Betriebsverlauf: abgeschlossene Runden, explizit
+Administration → Lernen & Betriebsverlauf: abgeschlossene Quizrunden, explizit
 beendete Teilrunden und Betriebsänderungen. Highscores ausschließlich hier,
 serverseitig administrativ geschützt. Je Lehrkraft wird das beste Ergebnis pro
 Klasse, Modus, Namensumfang, Rundentyp und Größe des Personenpools angezeigt.
@@ -121,6 +134,10 @@ Lernrunden behalten ihren begonnenen Datenstand; neue Runden nutzen den Katalog.
 ![Umgedrehte Karteikarte](../images/lernen-karte.png)
 
 ![Richtige Antwort](../images/lernen-rueckmeldung.png)
+
+### Quiz mit Countdown
+
+![Quiz mit Antwortzeit](../images/lernen-quiz.png)
 
 ### Rundenabschluss
 

@@ -70,20 +70,23 @@ try {
     .split(';')[0]
     .split('=');
 
-  let delayedCompanies = null;
+  let delayedCompanies = null,
+    savingCompanies = null;
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   await context.addCookies([
     {
       name: cookie[0],
       value: cookie[1],
-      domain: 'apps.school.example',
+      domain: 'klassentools.test',
       path: '/klassentools/',
       secure: true,
       httpOnly: true,
       sameSite: 'Lax',
     },
   ]);
-  await context.route('https://apps.school.example/klassentools/**', async (route) => {
+  // All browser traffic is intercepted; only the in-process loopback backend is contacted.
+  await context.route('**/*', (route) => route.abort());
+  await context.route('https://klassentools.test/klassentools/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.includes('/api/')) {
       const response = await route.fetch({
@@ -94,6 +97,16 @@ try {
           origin: 'https://apps.school.example',
         },
       });
+      if (
+        savingCompanies &&
+        url.pathname.endsWith('/companies') &&
+        route.request().method() === 'POST'
+      ) {
+        const pending = savingCompanies;
+        savingCompanies = null;
+        pending.started.resolve();
+        await pending.release.promise;
+      }
       if (
         delayedCompanies &&
         url.pathname.endsWith('/companies') &&
@@ -116,9 +129,14 @@ try {
   const page = await context.newPage(),
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('dialog', (d) => d.accept());
+  let discard = true,
+    prompts = 0;
+  page.on('dialog', (d) => {
+    prompts++;
+    return discard ? d.accept() : d.dismiss();
+  });
   const open = async () => {
-    await page.goto('https://apps.school.example/klassentools/?app=1');
+    await page.goto('https://klassentools.test/klassentools/?app=1');
     await page.locator('#class-select option[value=g]').waitFor({ state: 'attached' });
     await page.selectOption('#class-select', 'g');
     await page.waitForFunction(() => document.querySelectorAll('.person').length === 6);
@@ -127,10 +145,34 @@ try {
   };
 
   await open();
+  assert.equal(await page.locator('#learn-purpose-learn').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#learn-limit option[value=time]').isEnabled(), false);
+  const startResponse = page.waitForResponse(
+    (r) => r.url().endsWith('/learning') && r.request().method() === 'POST',
+  );
+  await page.click('#learn-start');
+  const initial = await (await startResponse).json();
+  const wrong = initial.question.choices.find((p) => p.id !== initial.question.id).id;
+  await page.locator(`[data-answer="${wrong}"]`).click();
+  await page.locator('.learn-wrong').waitFor();
+  await page.waitForTimeout(2500);
+  assert.equal(await page.locator('.learn-reveal').isVisible(), true);
+  assert.equal(await page.locator('#learn-next').isVisible(), true);
+  await page.click('#learn-next');
+  await page.locator('[data-answer]').first().waitFor();
+  await page.click('#learn-finish');
+  await page.locator('.learn-summary').waitFor();
+  assert.equal(store.learningAudit('g').entries.length, 0);
+  assert.equal(Object.keys(store.learningProgress('g', info.uuid)).length, 1);
+  await page.click('#learn-purpose-quiz');
   await page.selectOption('#learn-limit', 'class');
   await page.click('#learn-start');
   for (let i = 0; i < 6; i++) {
-    await page.locator('[data-answer]').first().click();
+    if (i === 0) {
+      await page.locator('#learn-timer').waitFor({ state: 'visible' });
+      await page.locator('.learn-wrong').waitFor();
+      assert.match(await page.locator('#learn-status').textContent(), /Zeit abgelaufen/);
+    } else await page.locator('[data-answer]').first().click();
     await page.locator('.learn-reveal').waitFor();
     assert.equal(await page.locator('#learn-start').isDisabled(), true);
     assert.equal(await page.locator('#learn-next').isVisible(), false);
@@ -142,7 +184,7 @@ try {
   await open();
   assert.ok((await page.locator('#learn-progress').textContent()).includes('6 Namen geübt'));
   // Catalogue + assignment go through their real authenticated endpoints.
-  await page.goto('https://apps.school.example/klassentools/?admin=classes');
+  await page.goto('https://klassentools.test/klassentools/?admin=classes');
   await page.locator('#admin-companies-tab').waitFor({ state: 'visible' });
   await page.click('#admin-companies-tab');
   await page.fill('#company-name', 'Beispielwerk');
@@ -191,7 +233,23 @@ try {
   await page.locator('[data-company-match]').click();
   assert.equal(await page.locator('#company-bulk').inputValue(), company);
   await page.click('#company-bulk-apply');
+  discard = false;
+  const beforeDiscard = prompts;
+  await page.keyboard.press('Escape');
+  assert.equal(prompts, beforeDiscard + 1);
+  assert.equal(await page.locator('#management').evaluate((e) => e.open), true);
+  const pendingSave = { started: Promise.withResolvers(), release: Promise.withResolvers() };
+  savingCompanies = pendingSave;
   await page.click('#company-save');
+  await pendingSave.started.promise;
+  await page.keyboard.press('Escape');
+  await page.mouse.click(2, 2);
+  await page.click('#management .close');
+  assert.equal(prompts, beforeDiscard + 1);
+  assert.equal(await page.locator('#management').evaluate((e) => e.open), true);
+  pendingSave.release.resolve();
+  discard = true;
+
   await page.waitForFunction(() =>
     document.querySelector('#company-status').textContent.includes('gespeichert'),
   );
@@ -214,6 +272,7 @@ try {
   await page.selectOption('#class-select', '');
   for (const mode of ['photo-name', 'name-photo', 'typing', 'cards', 'company']) {
     await page.click('#learn-tab');
+    await page.click(mode === 'cards' ? '#learn-purpose-learn' : '#learn-purpose-quiz');
     await page.selectOption('#learn-mode', mode);
     assert.equal(await page.locator('.learn-symbol').count(), 1);
     await page.click('#learn-start');
@@ -251,6 +310,17 @@ try {
       );
     await page.click('#learn-finish');
     await page.locator('.learn-result').waitFor();
+    if (mode === 'typing') {
+      assert.equal(await page.locator('.learn-review-people > div').count(), 1);
+      await page.click('#learn-practice');
+      await page.locator('#learn-flip').waitFor();
+      assert.equal(await page.locator('#learn-purpose-learn').getAttribute('aria-pressed'), 'true');
+      await page.click('#learn-flip');
+      await page.locator('#learn-flip.is-flipped').waitFor();
+      await page.click('#learn-flip');
+      await page.locator('.learn-result').waitFor();
+      assert.equal(await page.locator('.learn-summary-stats').count(), 0);
+    }
   }
   assert.equal(await page.evaluate(() => JSON.stringify(localStorage).includes('Test0')), false);
   await page.click('#learn-tab');
@@ -266,7 +336,7 @@ try {
   assert.equal(await page.locator('#learning-panel').isVisible(), false);
   await page.waitForTimeout(2700);
   assert.equal(await page.locator('#learning-panel').isVisible(), false);
-  await page.goto('https://apps.school.example/klassentools/?admin=classes');
+  await page.goto('https://klassentools.test/klassentools/?admin=classes');
   await page.click('#admin-companies-tab');
   await page.locator('.admin-company-row .company-delete').first().click();
   await page.waitForFunction(

@@ -8,7 +8,7 @@ Gestalten von Sitzplänen – anschaulich mit Fotos und einer Portion Spannung.
 
 ## Stand
 
-- Version **1.2.11**, 3. Oktober 2026.
+- Version **1.3.0**, 4. Oktober 2026.
 - Verantwortlich: **Marc Schulz · BBS Einbeck**.
 - Öffentlicher, bereinigter Quellstand mit eigener Historie und MIT-Lizenz.
 - Screenshots und Demo verwenden ausschließlich erfundene Namen und KI-Porträts.
@@ -44,11 +44,11 @@ als CSV mitnehmen.
 
 ### 3. Namen lernen
 
-Gesichter und Namen in fünf Modi üben: Foto → Name, Name → Foto, Karteikarten,
-Namenseingabe und Ausbildungsbetrieb. Zur Wahl stehen zehn Fragen, die ganze
-Klasse, Zeitrunden und freies Üben. Unsichere Namen werden gezielt wiederholt;
-Rückmeldungen und Ergebnisübersicht zeigen den Fortschritt. Die Serverversion speichert ihn
-pro IServ-Konto; in der DEMO bleibt er im Browser. Highscores sieht nur die Administration.
+Ohne Zeitdruck lernen oder im Quiz mit Countdown antreten: Foto → Name, Name → Foto,
+Karteikarten, Namenseingabe und Ausbildungsbetriebe. Im Quiz bleiben 5 Sekunden für
+Auswahlfragen, 10 für Betriebe und 20 zum Eintippen. Falsche Antworten gezielt
+wiederholen; persönlicher Fortschritt bleibt gespeichert. Quizranglisten sind nur
+für die Administration sichtbar.
 
 ![Namen lernen mit vier Namensantworten](images/lernen.png)
 

@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createRound,
+  createPracticeRound,
+  readyQuestion,
   nextQuestion,
   answerQuestion,
   matchesName,
@@ -429,4 +431,176 @@ test('one eligible portrait can repeat in practice, but whole-class rounds finis
     assert.equal(r.done, limit === 'class');
     if (!r.done) assert.equal(r.current.index, 1);
   }
+});
+
+test('learning stays untimed, saves progress but never publishes quiz scores or round logs', () => {
+  const db = photoStore(':memory:');
+  const now = Date.now();
+  const learn = { ...settings, purpose: 'learn' };
+  assert.throws(() => createRound(people, { ...learn, limit: 'time' }));
+  assert.throws(() => createRound(people, { ...learn, mode: 'typing' }));
+  assert.throws(() => createRound(people, { ...learn, purpose: 'invalid' }));
+  let r = db.startLearning('g', 'owner', 'Teacher', people, learn, now);
+  for (let i = 0; i < 2; i++) {
+    assert.equal(r.deadline, null);
+    r = db.learningAction(
+      'g',
+      'owner',
+      { id: r.id, index: i, action: 'answer', answer: r.question.id },
+      now + i * 100000 + 1,
+    );
+    r = db.learningAction(
+      'g',
+      'owner',
+      { id: r.id, index: i + 1, action: 'next' },
+      now + i * 100000 + 90000,
+    );
+  }
+  assert.equal(r.done, true);
+  assert.equal(Object.keys(db.learningProgress('g', 'owner')).length, 2);
+  assert.deepEqual(db.learningAudit().entries, []);
+  assert.deepEqual(db.learningAudit().highscores, []);
+  db.close();
+});
+test('quiz review repeats only missed people as unranked cards, bound to owner and completed round', () => {
+  const db = photoStore(':memory:');
+  const now = Date.now();
+  let r = db.startLearning('g', 'owner', 'Teacher', people, { ...settings, purpose: 'quiz' }, now);
+  assert.throws(() =>
+    db.learningAction('g', 'owner', { id: r.id, index: 0, action: 'practice' }, now + 1),
+  );
+  const missed = r.question.id;
+  r = db.learningAction(
+    'g',
+    'owner',
+    { id: r.id, index: 0, action: 'answer', answer: 'wrong' },
+    now + 2,
+  );
+  r = db.learningAction('g', 'owner', { id: r.id, index: 1, action: 'next' }, now + 3);
+  r = db.learningAction(
+    'g',
+    'owner',
+    { id: r.id, index: 1, action: 'answer', answer: r.question.id },
+    now + 4,
+  );
+  r = db.learningAction('g', 'owner', { id: r.id, index: 2, action: 'next' }, now + 5);
+  assert.deepEqual(
+    r.review.map((p) => p.id),
+    [missed],
+  );
+  assert.equal(db.learningAudit().highscores.length, 1);
+  assert.throws(() =>
+    db.learningAction('g', 'other', { id: r.id, index: 2, action: 'practice' }, now + 6),
+  );
+  r = db.learningAction('g', 'owner', { id: r.id, index: 2, action: 'practice' }, now + 7);
+  assert.equal(r.settings.purpose, 'learn');
+  assert.equal(r.settings.mode, 'cards');
+  assert.equal(r.goal, 1);
+  assert.equal(r.question.id, missed);
+  r = db.learningAction(
+    'g',
+    'owner',
+    { id: r.id, index: 0, action: 'answer', answer: 'reveal' },
+    now + 8,
+  );
+  r = db.learningAction('g', 'owner', { id: r.id, index: 1, action: 'next' }, now + 9);
+  assert.equal(r.done, true);
+  assert.equal(db.learningAudit().entries.length, 1);
+  assert.equal(db.learningAudit().highscores.length, 1);
+  assert.throws(() =>
+    createPracticeRound({ done: true, settings: { purpose: 'quiz' }, missed: [] }),
+  );
+  db.close();
+});
+
+test('quiz countdown starts once after display, uses 5/10/20 seconds and rejects late answers', () => {
+  for (const mode of ['photo-name', 'name-photo', 'company', 'typing']) {
+    const r = createRound(people, { ...settings, mode, purpose: 'quiz' }, 0),
+      p = {};
+    nextQuestion(r, p, 0, () => 0);
+    readyQuestion(r, 1000);
+    const duration = mode === 'typing' ? 20000 : mode === 'company' ? 10000 : 5000;
+    assert.equal(r.current.deadline, 1000 + duration);
+    readyQuestion(r, 2000);
+    assert.equal(r.current.deadline, 1000 + duration);
+    const answer =
+      mode === 'typing' ? r.current.label : mode === 'company' ? r.current.company : r.current.id;
+    answerQuestion(r, p, answer, r.current.deadline);
+    assert.equal(r.correct, 0);
+    assert.equal(r.feedback.timedOut, true);
+    assert.equal(r.missed.length, 1);
+    answerQuestion(r, p, answer, r.current.deadline + 1);
+    assert.equal(r.answered, 1);
+  }
+  const r = createRound(people, { ...settings, purpose: 'quiz' }, 0),
+    p = {};
+  nextQuestion(r, p, 0, () => 0);
+  readyQuestion(r, 0);
+  answerQuestion(r, p, r.current.id, 4999);
+  assert.equal(r.correct, 1);
+  assert.equal(r.feedback.timedOut, false);
+  nextQuestion(r, p, 8000);
+  readyQuestion(r, 99000);
+  assert.equal(r.current.deadline, 18000); // readiness cannot extend an abandoned question indefinitely
+  answerQuestion(r, p, r.current.id, 99001);
+  assert.equal(r.correct, 1);
+});
+test('practice has no question deadline; timed quiz counts timeout and pauses feedback at round boundary', () => {
+  const practice = createRound(people, { ...settings, purpose: 'learn' }, 0),
+    p = {};
+  nextQuestion(practice, p, 0);
+  readyQuestion(practice, 100000);
+  assert.equal(practice.current.deadline, null);
+  answerQuestion(practice, p, practice.current.id, 200000);
+  assert.equal(practice.correct, 1);
+  const quiz = createRound(people, { ...settings, purpose: 'quiz', limit: 'time' }, 0);
+  nextQuestion(quiz, {}, 58000);
+  readyQuestion(quiz, 59000);
+  assert.equal(quiz.current.deadline, 60000);
+  answerQuestion(quiz, {}, '', 60000);
+  assert.equal(quiz.feedback.timedOut, true);
+  assert.equal(quiz.answered, 1);
+  assert.equal(quiz.deadline, 62000);
+  nextQuestion(quiz, {}, 61999);
+  assert.equal(quiz.done, false);
+  nextQuestion(quiz, {}, 62000);
+  assert.equal(quiz.done, true);
+});
+test('server stores timed-out answers once and separates countdown scores from legacy scores', () => {
+  const db = photoStore(':memory:'),
+    now = Date.now();
+  for (const purpose of [undefined, 'quiz']) {
+    let r = db.startLearning(
+      'g',
+      'owner',
+      'Teacher',
+      [people[0]],
+      { ...settings, ...(purpose ? { purpose } : {}) },
+      now,
+    );
+    r = db.learningAction('g', 'owner', { id: r.id, index: 0, action: 'ready' }, now + 100);
+    r = db.learningAction(
+      'g',
+      'owner',
+      { id: r.id, index: 0, action: 'answer', answer: 'a' },
+      now + 5100,
+    );
+    assert.equal(r.correct, purpose ? 0 : 1);
+    db.learningAction(
+      'g',
+      'owner',
+      { id: r.id, index: 0, action: 'answer', answer: 'a' },
+      now + 5200,
+    );
+    db.learningAction('g', 'owner', { id: r.id, index: 1, action: 'next' }, now + 7200);
+  }
+  assert.equal(db.learningAudit().highscores.length, 2);
+  assert.deepEqual(
+    db
+      .learningAudit()
+      .highscores.map((r) => r.detail.questionMs)
+      .sort(),
+    [0, 5000],
+  );
+  db.close();
 });

@@ -64,14 +64,15 @@ try {
     {
       name: cookie[0],
       value: cookie[1],
-      domain: 'apps.school.example',
+      domain: 'klassentools.test',
       path: '/klassentools/',
       secure: true,
       httpOnly: true,
       sameSite: 'Lax',
     },
   ]);
-  await context.route('https://apps.school.example/klassentools/**', async (route) => {
+  await context.route('**/*', (route) => route.abort());
+  await context.route('https://klassentools.test/klassentools/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname.includes('/api/')) {
       if (delayedPhoto && url.pathname.endsWith('/photos') && route.request().method() === 'GET') {
@@ -116,9 +117,17 @@ try {
   const page = await context.newPage(),
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  page.on('dialog', (d) => d.accept());
+  let discard = true,
+    prompts = 0;
+  page.on('dialog', (d) => {
+    if (d.message() === 'Ungespeicherte Änderungen verwerfen?') {
+      prompts++;
+      return discard ? d.accept() : d.dismiss();
+    }
+    return d.accept();
+  });
   const open = async () => {
-    await page.goto('https://apps.school.example/klassentools/?app=1');
+    await page.goto('https://klassentools.test/klassentools/?app=1');
     await page.locator('#class-select option[value=g]').waitFor({ state: 'attached' });
     await page.selectOption('#class-select', 'g');
     await page.waitForTimeout(150);
@@ -136,6 +145,19 @@ try {
   await page.waitForFunction(() =>
     document.querySelector('#stored-photo-count').textContent.includes('0 Fotos'),
   );
+  await page.waitForFunction(() => !document.querySelector('#cancel-photos').disabled);
+  await page.locator('#photo-title').click();
+  assert.equal(await page.locator('#management').evaluate((e) => e.open), true);
+  const heading = await page.locator('#photo-title').boundingBox();
+  await page.mouse.move(heading.x + 10, heading.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(2, 2);
+  await page.mouse.up();
+  assert.equal(await page.locator('#management').evaluate((e) => e.open), true);
+  await page.mouse.click(2, 2);
+  await page.waitForFunction(() => !document.querySelector('#management').open);
+  assert.equal(prompts, 0);
+  await page.click('#manage');
   const buffer = await sharp({
     create: { width: 400, height: 700, channels: 3, background: '#4585a0' },
   })
@@ -164,13 +186,51 @@ try {
     { name: 'unknown.png', mimeType: 'image/png', buffer },
   ]);
   await page.locator('#apply-photos').waitFor();
-  assert.equal(await page.locator('.photo-review-row:visible').count(), 1);
+  assert.equal(await page.locator('.photo-review-row:visible').count(), 2);
+  assert.equal(await page.isChecked('#photo-review-open-only'), false);
+  discard = false;
+  for (const close of [
+    () => page.mouse.click(2, 2),
+    () => page.keyboard.press('Escape'),
+    () => page.click('#management .close'),
+  ]) {
+    const before = prompts;
+    await close();
+    assert.equal(prompts, before + 1);
+    assert.equal(await page.locator('#management').evaluate((e) => e.open), true);
+    assert.equal(await page.locator('[data-photo-index]').count(), 2);
+  }
+  discard = true;
   await page.selectOption('[data-photo-index="1"]', '1');
-  await page.uncheck('#photo-review-open-only');
+  assert.equal(await page.locator('.photo-review-row:visible').count(), 2);
+  assert.match(
+    await page.locator('.photo-review-row').nth(1).textContent(),
+    /zugeordnet · noch nicht gespeichert/,
+  );
+  await page.check('#photo-review-open-only');
+  assert.equal(await page.locator('.photo-review-row:visible').count(), 0);
+  await page.locator('#photo-review-complete').waitFor();
+  await page.click('#photo-review-show-all');
+  assert.equal(await page.locator('.photo-review-row:visible').count(), 2);
+  assert.equal(await page.isChecked('#photo-review-open-only'), false);
   await page.locator('[data-crop-index="0"]').click();
   await page.locator('#crop-dialog').waitFor();
   await page.locator('#crop-zoom').fill('1.5');
   await page.locator('#crop-y').fill('0.2');
+  discard = false;
+  for (const close of [
+    () => page.mouse.click(2, 2),
+    () => page.keyboard.press('Escape'),
+    () => page.click('#crop-cancel'),
+  ]) {
+    const before = prompts;
+    await close();
+    assert.equal(prompts, before + 1);
+    assert.equal(await page.locator('#crop-dialog').evaluate((e) => e.open), true);
+    assert.equal(await page.locator('#crop-zoom').inputValue(), '1.5');
+  }
+  discard = true;
+
   await page.locator('#crop-apply').click();
   await page.locator('#apply-photos').click();
   await page.waitForFunction(() => !document.querySelector('#management').open);
@@ -180,6 +240,17 @@ try {
   assert.equal(await page.locator('#grid .portrait img:not(.avatar-placeholder)').count(), 2);
   await page.locator('#manage').click();
   assert.equal(await page.locator('#management #show-photo-audit').count(), 0);
+  await page.locator('[data-edit-photo="0"]').click();
+  await page.locator('#crop-dialog').waitFor();
+  await page.waitForFunction(() => !document.querySelector('#crop-apply').disabled);
+  const beforeInspect = prompts;
+  await page.mouse.click(2, 2);
+  await page.waitForFunction(() => !document.querySelector('#crop-dialog').open);
+  assert.equal(await page.locator('#management').evaluate((e) => e.open), true);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('#management').open);
+  assert.equal(prompts, beforeInspect);
+  await page.click('#manage');
   await page.locator('[data-edit-photo="0"]').click();
   await page.locator('#crop-dialog').waitFor();
   await page.locator('#crop-settings summary').click();
@@ -252,12 +323,15 @@ try {
   assert.equal(store.audit('g').entries[0].action, 'replace');
   await page.locator('#manage').click();
   await page.locator('[data-delete-member="s0"]').waitFor();
-  await page.check('[data-delete-member="s0"]');
-  await page.locator('#delete-selected-photos').click();
+  await page.locator('[data-edit-photo="0"]').click();
+  await page.waitForFunction(() => !document.querySelector('#crop-apply').disabled);
+  await page.locator('#crop-remove').click();
   await page.waitForFunction(() =>
     document.querySelector('#import-status').textContent.includes('1 Fotos gelöscht'),
   );
   assert.equal(store.snapshot('g', new Set(['s0', 's1'])).total, 1);
+  assert.equal(store.assignments('g').assignments.s0, company);
+  assert.equal(await page.locator('#crop-dialog').evaluate((e) => e.open), false);
   // A second writer changes revision after this dialog loaded: deletion must conflict.
   const state = store.snapshot('g', new Set(['s1']));
   store.mutate({

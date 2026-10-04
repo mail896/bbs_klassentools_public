@@ -3,7 +3,7 @@
 [Deutsche Version](README.md) · [Project page & live demo](https://mail896.github.io/bbs_klassentools_public/)
 
 A classroom toolkit for random student selection, team assignment, playful name learning
-and visual seating plans. Developed for BBS Einbeck by Marc Schulz. Version **1.2.11**, October 3, 2026.
+and visual seating plans. Developed for BBS Einbeck by Marc Schulz. Version **1.3.0**, October 4, 2026.
 The interface is German. All demonstration names are fictional and portraits AI-generated.
 
 ## Try it
@@ -32,11 +32,10 @@ then print the groups or export them as CSV.
 
 ### 3. Name learning
 
-Practice with five modes: photo → name, name → photo, flashcards, typed names and
-training companies. Choose ten questions, the whole class, timed rounds or free
-practice. Missed names receive targeted repetitions; feedback and summaries show
-progress. The server application stores progress per IServ account; the demo keeps it in the browser.
-Highscores are visible only to administrators.
+Learn at your own pace or take a timed quiz: photo → name, name → photo,
+flashcards, typed names and training companies. Quiz answers allow 5 seconds for
+name/photo choices, 10 for companies and 20 for typing. Review missed answers
+with targeted flashcards. Progress is private; quiz rankings are admin-only.
 
 ![Name-learning quiz](images/lernen.png)
 

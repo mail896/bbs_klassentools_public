@@ -85,6 +85,9 @@ const fs = require('node:fs'),
   await page.locator('#apply-photos').waitFor();
   assert.equal(await page.locator('[data-photo-index="0"]').inputValue(), '0');
   assert.equal(await page.locator('[data-photo-index="1"]').inputValue(), '');
+  assert.equal(await page.locator('.photo-review-row:visible').count(), 2);
+  assert.equal(await page.isChecked('#photo-review-open-only'), false);
+  await page.check('#photo-review-open-only');
   assert.equal(await page.locator('.photo-review-row:visible').count(), 1);
   await page.uncheck('#photo-review-open-only');
   assert.equal(await page.locator('.photo-review-row[data-state=ready]').count(), 1);

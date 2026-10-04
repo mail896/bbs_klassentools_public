@@ -1,6 +1,13 @@
 import { randomUUID, randomInt } from 'node:crypto';
 import { HttpError } from './errors.mjs';
-import { createRound, nextQuestion, answerQuestion, roundView } from '../public/learning-core.mjs';
+import {
+  createPracticeRound,
+  readyQuestion,
+  createRound,
+  nextQuestion,
+  answerQuestion,
+  roundView,
+} from '../public/learning-core.mjs';
 const random = () => randomInt(0, 0x100000000) / 0x100000000;
 export function learningStore(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS companies(id TEXT PRIMARY KEY,name TEXT NOT NULL,city TEXT NOT NULL,short TEXT NOT NULL,active INTEGER NOT NULL,revision INTEGER NOT NULL) STRICT;
@@ -211,7 +218,7 @@ export function learningStore(db) {
         JSON.stringify(r),
         now,
       );
-      return { id, ...roundView(r) };
+      return { id, ...roundView(r, now) };
     },
     learningAction(g, owner, body, now = Date.now()) {
       return transaction(() => {
@@ -227,15 +234,23 @@ export function learningStore(db) {
           .get(body.id, g, owner);
         if (!row || row.updated < now - 86400000)
           throw new HttpError(404, 'Lernrunde abgelaufen. Bitte neu starten.');
-        const r = JSON.parse(row.data),
-          p = progress(g, owner),
+        let r = JSON.parse(row.data);
+        const p = progress(g, owner),
           wasDone = r.done;
         if (
           body.index !== r.answered &&
           !(body.action === 'answer' && r.feedback && body.index === r.answered - 1)
         )
           throw new HttpError(409, 'Die Lernrunde ist bereits weiter. Bitte neu starten.');
-        if (body.action === 'answer') {
+        if (body.action === 'practice') {
+          try {
+            r = createPracticeRound(r, now);
+          } catch (e) {
+            throw new HttpError(400, e.message);
+          }
+          nextQuestion(r, p, now, random);
+        } else if (body.action === 'ready') readyQuestion(r, now);
+        else if (body.action === 'answer') {
           if (
             typeof body.answer !== 'boolean' &&
             (typeof body.answer !== 'string' || body.answer.length > 160)
@@ -246,7 +261,7 @@ export function learningStore(db) {
         else if (body.action === 'finish') r.done = true;
         else throw new HttpError(400, 'Unbekannte Aktion.');
         if (r.deadline && now >= r.deadline) r.done = true;
-        if (r.done && !wasDone) {
+        if (r.done && !wasDone && r.settings.purpose !== 'learn') {
           const complete =
             r.settings.limit === 'time'
               ? now >= r.deadline
@@ -254,6 +269,7 @@ export function learningStore(db) {
           audit(g, row.actor, 'Lernrunde beendet', {
             owner,
             pool: r.people.length,
+            purpose: r.settings.purpose || 'quiz',
             mode: r.settings.mode,
             limit: r.settings.limit,
             names: r.settings.names,
@@ -263,6 +279,7 @@ export function learningStore(db) {
             complete,
             ranked: complete && r.settings.mode !== 'cards',
             timing: r.timing || 'elapsed',
+            questionMs: r.questionMs || 0,
             seconds: Math.round(
               (now - r.started - (r.pausedMs || 0) + Math.max(0, (r.feedbackUntil || 0) - now)) /
                 1000,
@@ -280,7 +297,7 @@ export function learningStore(db) {
           now,
           body.id,
         );
-        return { id: body.id, ...roundView(r), progress: p };
+        return { id: body.id, ...roundView(r, now), progress: p };
       });
     },
     resetLearning(g, owner, actor) {
@@ -311,6 +328,7 @@ export function learningStore(db) {
             d.goal,
             d.pool,
             d.timing || 'elapsed',
+            d.questionMs || 0,
           ]);
         const old = scores.get(k);
         if (!old || compare(d, old.detail) < 0) scores.set(k, r);

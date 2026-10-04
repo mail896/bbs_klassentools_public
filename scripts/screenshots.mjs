@@ -92,7 +92,7 @@ try {
         path: 'images/lernen-rueckmeldung.png',
         fullPage: true,
       });
-    await page.waitForTimeout(2100);
+    await page.locator('#learn-next').click();
   }
   await page.locator('.learn-summary').waitFor();
   await page.screenshot({
@@ -109,6 +109,12 @@ try {
     path: 'images/lernen-karte.png',
     fullPage: true,
   });
+  await page.click('#learn-finish');
+  await page.click('#learn-purpose-quiz');
+  await page.selectOption('#learn-mode', 'photo-name');
+  await page.click('#learn-start');
+  await page.locator('#learn-timer:not([hidden])').waitFor();
+  await page.screenshot({ animations: 'disabled', path: 'images/lernen-quiz.png', fullPage: true });
   await page.click('#learn-finish');
   await page.click('#pick-tab');
   await page.selectOption('#theme', 'dark');
