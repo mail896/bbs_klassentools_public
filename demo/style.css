@@ -4405,3 +4405,78 @@ html {
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
+
+/* Learning and quiz share the same workspace, with an explicit pace choice. */
+.learn-purpose {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--line);
+}
+.learn-purpose button {
+  flex: 1;
+}
+.learn-purpose button[aria-pressed='true'] {
+  background: var(--tool-selected);
+  color: var(--tool-selected-text);
+}
+.learn-review {
+  margin-top: 24px;
+}
+.learn-review-people {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.learn-review-people > div {
+  width: 120px;
+}
+.learn-review-people .learn-photo {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 8px;
+}
+
+#learn-purpose-hint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 0;
+}
+
+#learn-timer {
+  width: min(100%, 560px);
+  margin: 20px auto 0;
+}
+.learn-timer-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+#learn-time-track {
+  height: 7px;
+  border-radius: 8px;
+  background: var(--line);
+  overflow: hidden;
+}
+#learn-time-bar {
+  height: 100%;
+  background: #4b8a43;
+  transform-origin: left;
+  transition: transform 60ms linear;
+}
+#learn-timer.is-ending #learn-time-bar {
+  background: #cc8215;
+}
+@media (prefers-reduced-motion: reduce) {
+  #learn-time-bar {
+    transition: none;
+  }
+}

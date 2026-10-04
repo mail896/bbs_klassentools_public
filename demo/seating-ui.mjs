@@ -136,7 +136,7 @@ export function createSeatingUI(env) {
     plan.room = { width: seatRoomWidth(plan), height: seatRoomHeight(plan) };
     $('seat-storage-mode').textContent = env.selectedClass ? 'IServ-Klasse' : 'Lokaler Entwurf';
     $('seat-storage-note').textContent = env.selectedClass
-      ? 'Gemeinsame Pläne stehen den berechtigten Lehrkräften dieser Klasse zur Verfügung. Private Pläne sind nur für Ihr Konto sichtbar. Speichern und Löschen werden für die Administration protokolliert.'
+      ? 'Gemeinsame Pläne stehen den berechtigten Lehrkräften dieser Klasse zur Verfügung. Private Sitzpläne sind nur für Ihr Konto sichtbar. Das Speichern und Löschen gemeinsamer und privater Pläne wird für die Administration protokolliert.'
       : 'DEMO und lokaler Fototest: Entwürfe bleiben nur bis zum Neuladen in diesem Browserfenster.';
     const options = [
       new Option(env.selectedClass ? 'Gemeinsamer Sitzplan' : 'Klassenentwurf', 'shared'),

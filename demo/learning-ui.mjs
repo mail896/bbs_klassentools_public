@@ -1,10 +1,12 @@
 import { paginate } from './admin-ui.mjs?v=af1f701092f9';
 import {
   createRound,
+  createPracticeRound,
+  readyQuestion,
   nextQuestion,
   answerQuestion,
   roundView,
-} from './learning-core.mjs?v=3d0084f8ba53';
+} from './learning-core.mjs?v=638833fa0af4';
 const modeLabels = {
   'photo-name': 'Foto → Name',
   'name-photo': 'Name → Foto',
@@ -29,7 +31,11 @@ export function createLearningUI({
     busy = false,
     tick = null,
     advance = null,
-    companyGeneration = 0;
+    companyGeneration = 0,
+    companyBusy = false,
+    purpose = 'learn',
+    questionTick = null,
+    questionPreparing = false;
   const api = async (path, body) => {
     const c = context(),
       response = await fetch('./api/' + path, {
@@ -69,7 +75,7 @@ export function createLearningUI({
       )
       .join(
         '',
-      )}</div><div class="learn-intro-content"><div class="learn-symbol" aria-hidden="true"><span>?</span><span>✓<small>Name erkannt</small></span></div><div class="learn-intro-copy"><h2>Wer ist wer?</h2><p>Gesichter kennenlernen. Namen behalten.</p><p>Wählen Sie einen Lernmodus und starten Sie Ihre Runde.</p></div></div></div>`;
+      )}</div><div class="learn-intro-content"><div class="learn-symbol" aria-hidden="true"><span>?</span><span>✓<small>Name erkannt</small></span></div><div class="learn-intro-copy"><h2>Wer ist wer?</h2><p>Gesichter kennenlernen. Namen behalten.</p><p>Wählen Sie Lernen oder Quiz und starten Sie Ihre Runde.</p></div></div></div>`;
   };
   const dataKey = 'klassentools.learning.demo.v1';
   const saveLocal = () => {
@@ -91,17 +97,118 @@ export function createLearningUI({
         ? `${list.length} Namen angesehen · ohne Bewertung`
         : `${list.length} ${list.length === 1 ? 'Name' : 'Namen'} geübt · ${list.filter((p) => p.streak >= 3).length} sicher · ${list.filter((p) => p.due <= Date.now()).length} zur Wiederholung fällig`;
   }
-  host.innerHTML = `<aside class="learn-settings"><h2>Namen lernen</h2><p>Gesichter wiedererkennen. Namen sicher behalten.</p><label for="learn-mode">Lernmodus</label><select id="learn-mode">${Object.entries(
+  host.innerHTML = `<aside class="learn-settings"><h2>Namen lernen</h2><p>Gesichter wiedererkennen. Namen sicher behalten.</p><div class="learn-purpose" role="group" aria-label="Lernen oder Quiz"><button type="button" id="learn-purpose-learn" aria-pressed="true">Lernen</button><button type="button" id="learn-purpose-quiz" aria-pressed="false">Quiz</button></div><p id="learn-purpose-hint"></p><label for="learn-mode">Übungsart</label><select id="learn-mode">${Object.entries(
     modeLabels,
   )
     .map(([k, v]) => `<option value="${k}">${v}</option>`)
     .join(
       '',
-    )}</select><label for="learn-names">Namen</label><select id="learn-names"><option value="full">Vor- und Nachname</option><option value="first">Vorname (bei gleichen Namen vollständig)</option></select><label for="learn-limit">Runde</label><select id="learn-limit"><option value="10">10 Fragen</option><option value="class">Ganze Klasse</option><option value="time">60 Sekunden</option><option value="free">Ohne Zeitdruck üben (bis 200 Fragen)</option></select><button type="button" class="primary" id="learn-start">Lernrunde starten</button><button type="button" id="learn-finish" hidden>Runde beenden</button><p id="learn-progress"></p><p id="learn-storage"></p><button type="button" id="learn-reset">Meinen Lernfortschritt zurücksetzen</button></aside><section class="learn-stage"><div class="learn-top"><strong id="learn-count"></strong><span id="learn-clock"></span></div><div class="learn-surface work-surface"><div id="learn-question"><h2>Wer ist wer?</h2><p>Wählen Sie einen Modus und starten Sie Ihre erste Runde.</p></div><p id="learn-status" role="status" aria-live="polite"></p><button id="learn-next" type="button" hidden>Weiter</button></div></section>`;
+    )}</select><label for="learn-names">Namen</label><select id="learn-names"><option value="full">Vor- und Nachname</option><option value="first">Vorname (bei gleichen Namen vollständig)</option></select><label for="learn-limit">Runde</label><select id="learn-limit"><option value="10">10 Fragen</option><option value="class">Ganze Klasse</option><option value="time">60 Sekunden</option><option value="free">Ohne Zeitdruck üben (bis 200 Fragen)</option></select><button type="button" class="primary" id="learn-start">Lernrunde starten</button><button type="button" id="learn-finish" hidden>Runde beenden</button><p id="learn-progress"></p><p id="learn-storage"></p><button type="button" id="learn-reset">Meinen Lernfortschritt zurücksetzen</button></aside><section class="learn-stage"><div class="learn-top"><strong id="learn-count"></strong><span id="learn-clock"></span></div><div class="learn-surface work-surface"><div id="learn-question"><h2>Wer ist wer?</h2><p>Wählen Sie einen Modus und starten Sie Ihre erste Runde.</p></div><div id="learn-timer" hidden><div class="learn-timer-caption"><span>Zeit für diese Frage</span><span id="learn-seconds"></span></div><div id="learn-time-track" role="progressbar" aria-label="Verbleibende Antwortzeit" aria-valuemin="0"><div id="learn-time-bar"></div></div></div><p id="learn-status" role="status" aria-live="polite"></p><button id="learn-next" type="button" hidden>Weiter</button></div></section>`;
+  function configure() {
+    const learning = purpose === 'learn';
+    for (const value of ['learn', 'quiz'])
+      $('learn-purpose-' + value).setAttribute('aria-pressed', String(value === purpose));
+    $('learn-purpose-hint').textContent = learning
+      ? 'In Ihrem Tempo. Lösungen bleiben sichtbar, bis Sie weitergehen.'
+      : '5 Sekunden für Namen und Fotos, 10 für Betriebe, 20 beim Eintippen. Danach automatisch weiter.';
+    for (const option of $('learn-mode').options) {
+      option.hidden = option.disabled = learning
+        ? option.value === 'typing'
+        : option.value === 'cards';
+    }
+    if ($('learn-mode').selectedOptions[0].disabled) $('learn-mode').value = 'photo-name';
+    for (const option of $('learn-limit').options) {
+      option.hidden = option.disabled = learning
+        ? option.value === 'time'
+        : option.value === 'free';
+    }
+    if ($('learn-limit').selectedOptions[0].disabled) $('learn-limit').value = '10';
+    $('learn-start').textContent = learning ? 'Lernrunde starten' : 'Quiz starten';
+    personal();
+  }
+  for (const value of ['learn', 'quiz'])
+    $('learn-purpose-' + value).onclick = () => {
+      if (busy || (round && !round.done)) return;
+      purpose = value;
+      round = null;
+      localRound = null;
+      configure();
+      $('learn-question').innerHTML = intro();
+      $('learn-count').textContent =
+        value === 'learn' ? 'Lernen in Ihrem Tempo' : 'Bereit für Ihr Quiz';
+      status('');
+      render();
+    };
+  configure();
   function controls() {
     for (const b of host.querySelectorAll('button')) b.disabled = busy;
-    for (const id of ['learn-mode', 'learn-names', 'learn-limit', 'learn-start', 'learn-reset'])
+    for (const id of [
+      'learn-purpose-learn',
+      'learn-purpose-quiz',
+      'learn-mode',
+      'learn-names',
+      'learn-limit',
+      'learn-start',
+      'learn-reset',
+    ])
       $(id).disabled = busy || (!!round && !round.done) || context().loading;
+  }
+  function questionControls() {
+    const disabled = busy || questionPreparing;
+    $('learn-question')
+      .querySelectorAll('[data-answer], #learn-input, #learn-input-form button')
+      .forEach((el) => {
+        el.disabled = disabled;
+      });
+  }
+  async function prepareQuestion(version, index) {
+    questionPreparing = true;
+    questionControls();
+    const root = $('learn-question');
+    const images = [...root.querySelectorAll('img')].map((img) => img.decode().catch(() => {}));
+    // Demo portraits are a CSS sprite, so load that shared image as well.
+    if (root.querySelector('.demo-portrait')) {
+      const img = new Image();
+      img.src = './demo-portraits.webp';
+      images.push(img.decode().catch(() => {}));
+    }
+    await Promise.race([Promise.all(images), new Promise((resolve) => setTimeout(resolve, 4000))]);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (version !== epoch || round?.question?.index !== index || round?.done || round?.feedback)
+      return;
+    questionPreparing = false;
+    await action('ready');
+  }
+  function startQuestionClock() {
+    const duration = round.questionMs;
+    if (!duration || round.feedback || round.done) return;
+    if (!round.question.ready) {
+      questionPreparing = true;
+      const version = epoch,
+        index = round.question.index;
+      // render() runs inside run(); start the readiness request after that request finishes.
+      advance = setTimeout(() => prepareQuestion(version, index), 0);
+      return;
+    }
+    questionPreparing = false;
+    const ends = performance.now() + Math.max(0, round.question.deadline - round.serverNow);
+    $('learn-timer').hidden = false;
+    const track = $('learn-time-track');
+    track.setAttribute('aria-valuemax', String(duration / 1000));
+    const update = () => {
+      const remaining = Math.max(0, ends - performance.now());
+      const seconds = Math.ceil(remaining / 1000);
+      $('learn-seconds').textContent = seconds + ' s';
+      track.setAttribute('aria-valuenow', String(seconds));
+      $('learn-time-bar').style.transform = `scaleX(${Math.min(1, remaining / duration)})`;
+      $('learn-timer').classList.toggle('is-ending', remaining <= 2000);
+      if (!remaining && !busy) {
+        clearInterval(questionTick);
+        action('answer', '');
+      }
+    };
+    update();
+    questionTick = setInterval(update, 50);
   }
   async function run(fn) {
     if (busy) return;
@@ -114,17 +221,25 @@ export function createLearningUI({
       if (version === epoch) {
         status(e.message + ' Sie können den Vorgang erneut versuchen.');
         if (round?.feedback && !round.done) $('learn-next').hidden = false;
+        else if (round?.questionMs && !round.question.ready && !round.done) {
+          $('learn-next').textContent = 'Frage erneut starten';
+          $('learn-next').hidden = false;
+        }
       }
     } finally {
       if (version === epoch) {
         busy = false;
         controls();
+        questionControls();
       }
     }
   }
   function render() {
     host.classList.toggle('learn-running', !!round && !round.done);
     clearInterval(tick);
+    clearInterval(questionTick);
+    questionPreparing = false;
+    $('learn-timer').hidden = true;
     clearTimeout(advance);
     $('learn-finish').hidden = !round || round.done;
     $('learn-next').hidden = true;
@@ -149,16 +264,31 @@ export function createLearningUI({
             ' Sekunden' +
             (round.feedbackUntil > Date.now() ? ' · Pause' : '')
           : '';
-      if (round?.deadline && !round.done && Date.now() >= round.deadline && !busy) action('finish');
+      if (
+        round?.deadline &&
+        !round.done &&
+        Date.now() >= round.deadline &&
+        !busy &&
+        (!round.questionMs || round.feedback)
+      )
+        action('finish');
     };
     clock();
     if (round.deadline && !round.done) tick = setInterval(clock, 500);
     if (round.done) {
+      const learning = round.settings.purpose === 'learn';
       const cards = round.settings.mode === 'cards';
       const percentage = round.answered ? Math.round((round.correct / round.answered) * 100) : 0;
       $('learn-count').textContent = 'Runde abgeschlossen';
       $('learn-question').innerHTML =
-        `<div class="learn-summary"><div class="learn-trophy" aria-hidden="true">${cards ? '<svg viewBox="0 0 80 80" fill="none" aria-hidden="true"><rect x="13" y="14" width="43" height="54" rx="5" fill="#ffe33b" stroke="#b78b16" stroke-width="3"/><rect x="24" y="8" width="43" height="54" rx="5" fill="#d9f9e2" stroke="#368050" stroke-width="3"/><path d="m34 34 8 8 15-19" stroke="#368050" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '<svg viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M22 17H9v10c0 12 9 17 20 17m29-27h13v10c0 12-9 17-20 17" stroke="#b78b16" stroke-width="5"/><path d="M22 10h36v22c0 13-7 21-18 21s-18-8-18-21Z" fill="#ffe33b" stroke="#b78b16" stroke-width="3"/><path d="M40 53v13" stroke="#b78b16" stroke-width="7"/><path d="M25 68h30v6H25z" fill="#b78b16"/><path d="m40 18 3 7 8 1-6 5 2 8-7-4-7 4 2-8-6-5 8-1z" fill="#d2a522"/></svg>'}</div><h2>${cards ? 'Namen kennengelernt' : 'Ihre Lernrunde'}</h2><p class="learn-result">${cards ? `${round.answered} Karten angesehen` : `${round.correct} von ${round.answered} richtig`}</p>${cards ? '' : `<div class="learn-summary-stats"><div><strong>${round.correct}</strong><span>✓ Richtig</span></div><div><strong>${round.answered - round.correct}</strong><span>✕ Noch üben</span></div><div><strong>${percentage} %</strong><span>Trefferquote</span></div></div>`}<p>${cards ? 'Testen Sie Ihre Namenkenntnisse auch in einem Quiz.' : round.answered === 0 ? 'Starten Sie eine neue Runde, wenn Sie bereit sind.' : percentage === 100 ? 'Alle Antworten richtig – weiter so!' : 'Mit jeder Runde werden die Namen vertrauter.'}</p><button type="button" class="primary" id="learn-restart">Noch eine Runde</button></div>`;
+        `<div class="learn-summary"><div class="learn-trophy" aria-hidden="true">${cards || learning ? '<svg viewBox="0 0 80 80" fill="none" aria-hidden="true"><rect x="13" y="14" width="43" height="54" rx="5" fill="#ffe33b" stroke="#b78b16" stroke-width="3"/><rect x="24" y="8" width="43" height="54" rx="5" fill="#d9f9e2" stroke="#368050" stroke-width="3"/><path d="m34 34 8 8 15-19" stroke="#368050" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '<svg viewBox="0 0 80 80" fill="none" aria-hidden="true"><path d="M22 17H9v10c0 12 9 17 20 17m29-27h13v10c0 12-9 17-20 17" stroke="#b78b16" stroke-width="5"/><path d="M22 10h36v22c0 13-7 21-18 21s-18-8-18-21Z" fill="#ffe33b" stroke="#b78b16" stroke-width="3"/><path d="M40 53v13" stroke="#b78b16" stroke-width="7"/><path d="M25 68h30v6H25z" fill="#b78b16"/><path d="m40 18 3 7 8 1-6 5 2 8-7-4-7 4 2-8-6-5 8-1z" fill="#d2a522"/></svg>'}</div><h2>${learning ? 'Diese Namen haben Sie geübt' : cards ? 'Namen kennengelernt' : 'Ihr Quizergebnis'}</h2><p class="learn-result">${learning ? `${round.answered} ${cards ? 'Karten angesehen' : 'Antworten geübt'}` : cards ? `${round.answered} Karten angesehen` : `${round.correct} von ${round.answered} richtig`}</p>${cards || learning ? '' : `<div class="learn-summary-stats"><div><strong>${round.correct}</strong><span>✓ Richtig</span></div><div><strong>${round.answered - round.correct}</strong><span>✕ Noch üben</span></div><div><strong>${percentage} %</strong><span>Trefferquote</span></div></div>`}<p>${learning ? 'Sie bestimmen das Tempo. Ihr Fortschritt hilft bei der nächsten Übung.' : cards ? 'Testen Sie Ihre Namenkenntnisse auch in einem Quiz.' : round.answered === 0 ? 'Starten Sie eine neue Runde, wenn Sie bereit sind.' : percentage === 100 ? 'Alle Antworten richtig – weiter so!' : 'Mit jeder Runde werden die Namen vertrauter.'}</p><button type="button" class="primary" id="learn-restart">Noch eine Runde</button></div>`;
+      if (!learning && round.review?.length) {
+        const section = document.createElement('section');
+        section.className = 'learn-review';
+        section.innerHTML = `<h3>Diese Namen noch einmal üben</h3><div class="learn-review-people">${round.review.map((p) => `<div>${portrait(p.id, p.label)}</div>`).join('')}</div><button type="button" id="learn-practice">Als Karteikarten üben</button>`;
+        $('learn-question').querySelector('.learn-summary').append(section);
+        $('learn-practice').onclick = () => action('practice');
+      }
       $('learn-restart').onclick = () => $('learn-start').click();
       status(
         context().group
@@ -213,13 +343,16 @@ export function createLearningUI({
       status(
         f.correct
           ? '✓ Richtig!'
-          : '✕ Falsch – richtig ist: ' + (round.settings.mode === 'company' ? f.company : f.label),
+          : (f.timedOut ? '⌛ Zeit abgelaufen – richtig ist: ' : '✕ Falsch – richtig ist: ') +
+              (round.settings.mode === 'company' ? f.company : f.label),
       );
       $('learn-status').className = f.correct ? 'learn-correct' : 'learn-wrong';
       const version = epoch;
-      advance = setTimeout(() => {
-        if (version === epoch && round?.feedback && !round.done) action('next');
-      }, 2000);
+      if (round.settings.purpose === 'learn') $('learn-next').hidden = false;
+      else
+        advance = setTimeout(() => {
+          if (version === epoch && round?.feedback && !round.done) action('next');
+        }, 2000);
       return;
     }
     status('');
@@ -234,6 +367,7 @@ export function createLearningUI({
     $('learn-question')
       .querySelectorAll('[data-answer]')
       .forEach((b) => (b.onclick = () => action('answer', b.dataset.answer)));
+    startQuestionClock();
     $('learn-input')?.focus({ preventScroll: true });
     if ($('learn-input-form'))
       $('learn-input-form').onsubmit = (e) => {
@@ -253,7 +387,11 @@ export function createLearningUI({
       let response;
       if (context().group) response = await api(prefix() + 'learning', body);
       else {
-        if (action === 'answer') answerQuestion(localRound, progress, answer);
+        if (action === 'practice') {
+          localRound = createPracticeRound(localRound);
+          nextQuestion(localRound, progress);
+        } else if (action === 'ready') readyQuestion(localRound);
+        else if (action === 'answer') answerQuestion(localRound, progress, answer);
         else if (action === 'next') nextQuestion(localRound, progress);
         else localRound.done = true;
         response = { id: 'demo', ...roundView(localRound) };
@@ -261,16 +399,25 @@ export function createLearningUI({
       }
       if (version !== epoch) return;
       round = response;
+      if (action === 'practice') {
+        purpose = 'learn';
+        $('learn-mode').value = round.settings.mode;
+        $('learn-names').value = round.settings.names;
+        $('learn-limit').value = round.settings.limit;
+        configure();
+      }
       if (response.progress) progress = response.progress;
       render();
     });
   }
-  $('learn-next').onclick = () => action('next');
+  $('learn-next').onclick = () =>
+    action(round?.questionMs && !round.question.ready ? 'ready' : 'next');
   $('learn-finish').onclick = () => action('finish');
   $('learn-mode').onchange = $('learn-names').onchange = personal;
   $('learn-start').onclick = () =>
     run(async (version) => {
       const settings = {
+        purpose,
         mode: $('learn-mode').value,
         names: $('learn-names').value,
         limit: $('learn-limit').value,
@@ -320,6 +467,9 @@ export function createLearningUI({
     progress = {};
     companyGeneration++;
     clearInterval(tick);
+    clearInterval(questionTick);
+    questionPreparing = false;
+    $('learn-timer').hidden = true;
     clearTimeout(advance);
     $('company-assignment').replaceChildren();
     $('learn-question').innerHTML = intro();
@@ -393,6 +543,8 @@ export function createLearningUI({
           .join(
             '',
           )}</div><button type="button" id="company-save" class="primary">Betriebszuordnungen speichern</button><p id="company-status" role="status"></p>`;
+      for (const select of $('company-assignment').querySelectorAll('[data-company-member]'))
+        select.dataset.savedValue = select.value;
       const filterCompanies = () => {
         const q = $('company-filter').value.trim().toLocaleLowerCase('de');
         const matches = data.companies.filter(
@@ -444,6 +596,8 @@ export function createLearningUI({
       };
       $('company-save').onclick = async () => {
         const button = $('company-save');
+        if (companyBusy) return;
+        companyBusy = true;
         button.disabled = true;
         try {
           const assignments = Object.fromEntries(
@@ -465,6 +619,7 @@ export function createLearningUI({
         } catch (e) {
           if (current()) $('company-status').textContent = e.message;
         } finally {
+          companyBusy = false;
           button.disabled = false;
         }
       };
@@ -472,7 +627,22 @@ export function createLearningUI({
       if (current()) $('company-assignment').textContent = e.message;
     }
   }
-  return { open, reset, manageCompanies, api, groups, esc, context };
+  return {
+    open,
+    reset,
+    manageCompanies,
+    api,
+    groups,
+    esc,
+    context,
+    get companyBusy() {
+      return companyBusy;
+    },
+    companiesDirty: () =>
+      [...$('company-assignment').querySelectorAll('[data-company-member]')].some(
+        (select) => select.value !== select.dataset.savedValue,
+      ),
+  };
 }
 export function setupLearningAdmin(ui, activate) {
   let generation = 0,
@@ -609,6 +779,7 @@ export function setupLearningAdmin(ui, activate) {
             : ''),
         d.names === 'first' ? 'Vornamen' : 'Vollständige Namen',
         `${d.pool} Personen`,
+        d.questionMs ? `${d.questionMs / 1000} Sekunden je Frage` : 'Ohne Fragenzeitlimit',
       ].join(' · ');
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(row);
@@ -622,7 +793,7 @@ export function setupLearningAdmin(ui, activate) {
     const version = generation;
     const host = $('admin-learning-panel');
     host.innerHTML =
-      '<h2>Namen lernen · Highscores & Protokoll</h2><p>Nur Administration. Ranglisten getrennt nach Klasse, Modus, Namensumfang und Rundentyp. Karteikarten und abgebrochene Runden werden nicht gewertet. Lernrunden werden 90 Tage aufbewahrt. Trainingsergebnisse sind kein Prüfungsnachweis. Auswertung der bis zu 500 neuesten passenden Ereignisse.</p><div class="admin-filters"><label>Klasse<select id="learn-audit-class"><option value="">Alle Klassen</option>' +
+      '<h2>Namen lernen · Highscores & Protokoll</h2><p>Nur Administration. Ranglisten getrennt nach Klasse, Modus, Namensumfang und Rundentyp. Nur abgeschlossene Quizrunden werden gewertet. Lernen speichert den persönlichen Fortschritt ohne Rangliste. Lernrunden werden 90 Tage aufbewahrt. Trainingsergebnisse sind kein Prüfungsnachweis. Auswertung der bis zu 500 neuesten passenden Ereignisse.</p><div class="admin-filters"><label>Klasse<select id="learn-audit-class"><option value="">Alle Klassen</option>' +
       ui
         .groups()
         .map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`)

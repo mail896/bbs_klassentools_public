@@ -36,7 +36,19 @@ export function label(p, nameMode, people) {
     : `${p.first} ${p.last}`;
 }
 export function createRound(people, settings, now = Date.now()) {
+  const questionMs =
+    settings.purpose === 'quiz'
+      ? settings.mode === 'typing'
+        ? 20000
+        : settings.mode === 'company'
+          ? 10000
+          : 5000
+      : 0;
+  // Missing purpose preserves the behavior of rounds from before this split.
+  settings = { ...settings, purpose: settings.purpose ?? 'quiz' };
   if (
+    !['learn', 'quiz'].includes(settings.purpose) ||
+    (settings.purpose === 'learn' && (settings.limit === 'time' || settings.mode === 'typing')) ||
     !modes.includes(settings.mode) ||
     !['10', 'class', 'time', 'free'].includes(settings.limit) ||
     !['first', 'full'].includes(settings.names)
@@ -49,6 +61,7 @@ export function createRound(people, settings, now = Date.now()) {
     );
   return {
     people: eligible,
+    questionMs,
     companies: [...new Set(people.map((p) => p.company).filter(Boolean))],
     settings,
     started: now,
@@ -60,6 +73,7 @@ export function createRound(people, settings, now = Date.now()) {
     answered: 0,
     correct: 0,
     history: [],
+    missed: [],
     current: null,
     feedback: null,
     done: false,
@@ -142,13 +156,25 @@ export function nextQuestion(round, progress, now = Date.now(), random = Math.ra
     choices,
     companyChoices,
     index: round.answered,
+    issuedAt: now,
+    ready: !round.questionMs,
+    deadline: round.questionMs ? now + 5000 + round.questionMs : null,
   };
   round.feedback = null;
   round.feedbackUntil = null;
 }
+// Allow a bounded initial image-loading window, but never restart an active question.
+export function readyQuestion(round, now = Date.now()) {
+  const q = round.current;
+  if (!q || q.ready || round.feedback || round.done || !round.questionMs) return;
+  q.ready = true;
+  q.deadline = Math.min(now, q.issuedAt + 5000) + round.questionMs;
+  if (round.deadline) q.deadline = Math.min(q.deadline, round.deadline);
+}
 export function answerQuestion(round, progress, answer, now = Date.now()) {
   if (round.done || !round.current || round.feedback) return;
-  if (round.deadline && now >= round.deadline) {
+  const timedOut = !!round.current.deadline && now >= round.current.deadline;
+  if (round.deadline && now >= round.deadline && !timedOut) {
     round.done = true;
     return;
   }
@@ -174,7 +200,8 @@ export function answerQuestion(round, progress, answer, now = Date.now()) {
     round.feedbackUntil = now + 2000;
   }
   const correct =
-    mode === 'typing'
+    !timedOut &&
+    (mode === 'typing'
       ? matchesName(
           answer,
           q.label,
@@ -182,7 +209,7 @@ export function answerQuestion(round, progress, answer, now = Date.now()) {
         )
       : mode === 'company'
         ? answer === q.company
-        : answer === q.id || q.choices.some((p) => p.id === answer && p.label === q.label);
+        : answer === q.id || q.choices.some((p) => p.id === answer && p.label === q.label));
   const key = `${q.id}|${mode}|${round.settings.names}`,
     old = progress[key] || { right: 0, wrong: 0, streak: 0, due: 0 };
   old.right += correct ? 1 : 0;
@@ -192,12 +219,24 @@ export function answerQuestion(round, progress, answer, now = Date.now()) {
   progress[key] = old;
   round.answered++;
   round.correct += correct ? 1 : 0;
+  if (!correct && !round.missed?.includes(q.id)) (round.missed ??= []).push(q.id);
   round.history.push(q.id);
-  round.feedback = { correct, label: q.label, id: q.id, company: q.company };
+  round.feedback = { correct, timedOut, label: q.label, id: q.id, company: q.company };
 }
-export function roundView(r) {
+export function createPracticeRound(round, now = Date.now()) {
+  if (!round.done || round.settings.purpose === 'learn' || !round.missed?.length)
+    throw new Error('Keine Quiznamen zum Wiederholen vorhanden.');
+  return createRound(
+    round.people.filter((p) => round.missed.includes(p.id)),
+    { purpose: 'learn', mode: 'cards', names: 'full', limit: 'class' },
+    now,
+  );
+}
+export function roundView(r, now = Date.now()) {
   return {
     settings: r.settings,
+    serverNow: now,
+    questionMs: r.questionMs || 0,
     goal: r.goal,
     deadline: r.deadline,
     feedbackUntil: r.feedbackUntil,
@@ -206,5 +245,13 @@ export function roundView(r) {
     question: r.current,
     feedback: r.feedback,
     done: r.done,
+    review: r.done
+      ? r.people
+          .filter((p) => r.missed?.includes(p.id))
+          .map((p) => ({
+            id: p.id,
+            label: label(p, 'full', r.people),
+          }))
+      : [],
   };
 }

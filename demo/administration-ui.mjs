@@ -1,5 +1,5 @@
 import { paginate } from './admin-ui.mjs?v=af1f701092f9';
-import { setupLearningAdmin } from './learning-ui.mjs?v=045fe86d9507';
+import { setupLearningAdmin } from './learning-ui.mjs?v=4366e0ebc588';
 const $ = (id) => document.getElementById(id);
 export function createAdministrationUI(env) {
   let auditCursor = null;

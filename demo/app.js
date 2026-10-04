@@ -1,4 +1,4 @@
-import { createLearningUI } from './learning-ui.mjs?v=045fe86d9507';
+import { createLearningUI } from './learning-ui.mjs?v=4366e0ebc588';
 import { colors, demoPeople } from './demo.mjs?v=9e9fedd7f899';
 import { matchPhotos } from './photo-matching.mjs?v=7aed189788e4';
 import { shuffle, groupSizes, draw, drawChances } from './logic.mjs?v=ff3b470a050d';
@@ -77,7 +77,7 @@ $('seat-tab').onclick = async () => {
   if (running || classLoading) return;
   const request = ++seatingOpenRequest;
   try {
-    seatingLoading ??= import('./seating-ui.mjs?v=1f4b5f4453f5').then(({ createSeatingUI }) => {
+    seatingLoading ??= import('./seating-ui.mjs?v=9a992def1748').then(({ createSeatingUI }) => {
       seatingUI = createSeatingUI(seatingContext);
       return seatingUI;
     });
@@ -148,7 +148,7 @@ const seatingContext = {
 let adminUI = null;
 let adminLoading = null;
 async function openAdministration() {
-  adminLoading ??= import('./administration-ui.mjs?v=82c79701758d')
+  adminLoading ??= import('./administration-ui.mjs?v=c76fe4b9b40b')
     .then(({ createAdministrationUI }) => {
       adminUI = createAdministrationUI(adminContext);
       return adminUI;
@@ -205,12 +205,58 @@ $('management')
   .querySelector('form')
   .addEventListener('submit', (event) => event.preventDefault());
 $('management').querySelector('.close').type = 'button';
-$('cancel-photos').onclick = () => {
-  if (!photoBusy) $('management').close();
-};
-$('management').querySelector('.close').onclick = () => {
-  if (!photoBusy) $('management').close();
-};
+function photoReviewDirty() {
+  return !!pendingPhotos?.files.some((file, index) => {
+    const selected = $('photo-review').querySelector(`[data-photo-index="${index}"]`)?.value;
+    const member = people.find((p) => String(p.id) === selected)?.memberId || '';
+    return (
+      !file.stored ||
+      file.photo !== (file.savedPhoto || file.reviewPhoto) ||
+      member !== (file.persistedMemberId || file.reviewMemberId || '')
+    );
+  });
+}
+function cropDirty() {
+  return (
+    !!cropState &&
+    (JSON.stringify(cropValues()) !== JSON.stringify(cropState.initial) ||
+      (cropState.companies && $('crop-company-select').value !== cropState.company))
+  );
+}
+function requestPhotoClose(dialog) {
+  if (photoBusy || learningUI?.companyBusy) return;
+  const dirty =
+    dialog.id === 'crop-dialog' ? cropDirty() : photoReviewDirty() || learningUI?.companiesDirty();
+  if (dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return;
+  dialog.close();
+}
+for (const id of ['management', 'crop-dialog']) {
+  const dialog = $(id);
+  let outsideDown = false;
+  const outside = (event) => {
+    const rect = dialog.getBoundingClientRect();
+    return (
+      event.target === dialog &&
+      (event.clientX < rect.left ||
+        event.clientX > rect.right ||
+        event.clientY < rect.top ||
+        event.clientY > rect.bottom)
+    );
+  };
+  dialog.addEventListener('pointerdown', (event) => {
+    outsideDown = outside(event);
+  });
+  dialog.addEventListener('click', (event) => {
+    if (outsideDown && outside(event)) requestPhotoClose(dialog);
+    outsideDown = false;
+  });
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    requestPhotoClose(dialog);
+  });
+}
+$('cancel-photos').onclick = $('management').querySelector('.close').onclick = () =>
+  requestPhotoClose($('management'));
 const escapeHTML = (value) =>
   String(value).replace(
     /[&<>"']/g,
@@ -1426,10 +1472,14 @@ function updatePhotoReview() {
   let ready = 0;
   for (const select of selects) {
     const row = select.closest('.photo-review-row'),
-      valid = select.value !== '' && counts.get(select.value) === 1;
+      valid = select.value !== '' && counts.get(select.value) === 1,
+      person = people.find((p) => String(p.id) === select.value),
+      file = pendingPhotos?.files[Number(select.dataset.photoIndex)],
+      unchanged =
+        file?.stored && file.photo === file.reviewPhoto && person?.memberId === file.reviewMemberId;
     row.dataset.state = valid ? 'ready' : 'open';
     row.querySelector('small').textContent = valid
-      ? '✓ Zugeordnet'
+      ? `✓ ${person.first} ${person.last} zugeordnet · ${unchanged ? 'gespeichert' : 'noch nicht gespeichert'}`
       : select.value !== ''
         ? '! Doppelt zugeordnet – bitte korrigieren'
         : '! Zuordnung offen';
@@ -1437,9 +1487,18 @@ function updatePhotoReview() {
     if (valid) ready++;
   }
   $('photo-review-count').textContent = `${ready} zugeordnet · ${selects.length - ready} offen`;
+  $('photo-review-complete').hidden = !(
+    $('photo-review-open-only').checked &&
+    selects.length > 0 &&
+    ready === selects.length
+  );
 }
 $('photo-review').addEventListener('change', updatePhotoReview);
 $('photo-review-open-only').onchange = updatePhotoReview;
+$('photo-review-show-all').onclick = () => {
+  $('photo-review-open-only').checked = false;
+  updatePhotoReview();
+};
 
 function makePortrait(image, crop, canvas = document.createElement('canvas')) {
   canvas.width = 640;
@@ -1500,8 +1559,13 @@ function showPhotoReview(imported, request, classId) {
           )}</select><button type="button" data-crop-index="${i}">Ausschnitt</button></div>`,
     )
     .join('');
+  imported.forEach((file, index) => {
+    file.reviewPhoto = file.photo;
+    const selected = $('photo-review').querySelector(`[data-photo-index="${index}"]`).value;
+    file.reviewMemberId = people.find((p) => String(p.id) === selected)?.memberId || '';
+  });
   $('photo-review-tools').hidden = false;
-  $('photo-review-open-only').checked = matches.some((m) => m.status !== 'exact');
+  $('photo-review-open-only').checked = false;
   updatePhotoReview();
   $('apply-photos').hidden = false;
   $('apply-photos').textContent = photoState.enabled
@@ -1549,6 +1613,8 @@ $('photo-review').addEventListener('click', async (event) => {
     $('crop-fit').checked = state.initial.fit;
     $('crop-settings').open = !file.stored;
     $('crop-company').hidden = !state.direct;
+    $('crop-remove').hidden = !(state.direct && file.stored);
+    $('crop-remove').disabled = false;
     $('crop-company-search').value = '';
     $('crop-company-select').replaceChildren();
     $('crop-company-results').textContent = '';
@@ -1624,9 +1690,7 @@ function paintCrop() {
   for (const id of ['crop-x', 'crop-y', 'crop-zoom']) $(id).disabled = $('crop-fit').checked;
 }
 for (const id of ['crop-x', 'crop-y', 'crop-zoom', 'crop-fit']) $(id).oninput = paintCrop;
-$('crop-cancel').onclick = () => {
-  if (!photoBusy) $('crop-dialog').close();
-};
+$('crop-cancel').onclick = () => requestPhotoClose($('crop-dialog'));
 let savedNoticeTimer;
 function savedPhotoNotice(text) {
   let toast = $('company-toast');
@@ -1724,9 +1788,6 @@ $('crop-apply').onclick = async () => {
     paintCrop();
   }
 };
-$('crop-dialog').addEventListener('cancel', (event) => {
-  if (photoBusy) event.preventDefault();
-});
 $('crop-dialog').addEventListener('close', () => {
   cropState = null;
 });
@@ -1749,9 +1810,6 @@ function setPhotoBusy(value) {
     $(id).disabled = value;
   $('management').querySelector('.close').disabled = value;
 }
-$('management').addEventListener('cancel', (event) => {
-  if (photoBusy) event.preventDefault();
-});
 async function photoRequest(method, body, suffix = 'photos') {
   const request = classRequest;
   const response = await fetch(`./api/classes/${encodeURIComponent(selectedClass)}/${suffix}`, {
@@ -1858,23 +1916,41 @@ $('stored-photo-list').addEventListener('click', (event) => {
   updatePhotoReview();
   $('photo-review').querySelector('[data-crop-index]').click();
 });
-async function deletePhotos(all) {
+async function deletePhotos(all, editor = null) {
   if (photoBusy || photoState.revision === null) return;
-  const ids = [...$('stored-photo-list').querySelectorAll('input:checked')].map(
-    (e) => e.dataset.deleteMember,
-  );
+  if (
+    editor &&
+    (cropState !== editor ||
+      pendingPhotos !== editor.owner ||
+      editor.owner.request !== classRequest ||
+      !editor.direct ||
+      !editor.owner.files[editor.index].stored)
+  )
+    return;
+  const ids = editor
+    ? [editor.person.memberId]
+    : [...$('stored-photo-list').querySelectorAll('input:checked')].map(
+        (e) => e.dataset.deleteMember,
+      );
   if (!all && !ids.length) {
     $('import-status').textContent = 'Bitte Fotos zum Löschen markieren.';
     return;
   }
   if (
     !confirm(
-      `${all ? 'Alle ' + photoState.total : ids.length} Fotos der Klasse ${$('class-name').textContent} dauerhaft löschen? Die Schülerliste bleibt erhalten.`,
+      editor
+        ? `Foto von ${editor.person.first} ${editor.person.last} dauerhaft entfernen? Danach wird das Standardbild angezeigt. Die gespeicherte Betriebszuordnung bleibt erhalten. Nicht gespeicherte Änderungen in diesem Dialog werden verworfen.`
+        : `${all ? 'Alle ' + photoState.total : ids.length} Fotos der Klasse ${$('class-name').textContent} dauerhaft löschen? Die Schülerliste bleibt erhalten.`,
     )
   )
     return;
   const request = classRequest;
   setPhotoBusy(true);
+  if (editor) {
+    for (const control of $('crop-dialog').querySelectorAll('button,input,select'))
+      control.disabled = true;
+    $('crop-status').textContent = 'Foto wird entfernt …';
+  }
   let committed = false;
   try {
     const result = await photoRequest('DELETE', {
@@ -1889,13 +1965,20 @@ async function deletePhotos(all) {
     updatePhotoManagement();
     $('import-status').textContent =
       `${result.changed} Fotos gelöscht. Der Vorgang ist protokolliert.`;
+    if (editor) savedPhotoNotice('Foto entfernt. Das Standardbild wird angezeigt.');
   } catch (e) {
     $('import-status').textContent =
       (committed ? 'Fotos wurden gelöscht. Anzeige bitte neu laden. ' : '') + e.message;
+    if (editor && cropState === editor)
+      $('crop-status').textContent = $('import-status').textContent;
   } finally {
     setPhotoBusy(false);
+    if (editor)
+      for (const control of $('crop-dialog').querySelectorAll('button,input,select'))
+        control.disabled = false;
   }
 }
+$('crop-remove').onclick = () => deletePhotos(false, cropState);
 $('delete-selected-photos').onclick = () => deletePhotos(false);
 $('delete-all-photos').onclick = () => deletePhotos(true);
 
