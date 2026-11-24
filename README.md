@@ -8,7 +8,7 @@ Gestalten von Sitzplänen – anschaulich mit Fotos und einer Portion Spannung.
 
 ## Stand
 
-- Version **1.3.0**, 4. Oktober 2026.
+- Version **1.4.0**, 24. November 2026.
 - Verantwortlich: **Marc Schulz · BBS Einbeck**.
 - Öffentlicher, bereinigter Quellstand mit eigener Historie und MIT-Lizenz.
 - Screenshots und Demo verwenden ausschließlich erfundene Namen und KI-Porträts.
@@ -72,8 +72,10 @@ private Pläne mit benannten Versionen.
 ## Gemeinsam in allen Bereichen
 
 Helle/dunkle Darstellung, mobile Bedienung und Vollbild. Die Serverversion ergänzt
-IServ-Klassen, gemeinsame Klassenfotos, Ausbildungsbetriebe, Klassenfreigaben und
-den administrativen Änderungsverlauf.
+IServ-Klassen, gemeinsame Klassenfotos, Ausbildungsbetriebe, Klassenfreigaben,
+den administrativen Änderungsverlauf und eine Nutzungsstatistik. Diese zeigt der
+Administration auch abgewiesene Schüleranmeldungen (Name, Konto, Versuche, letzter
+Zeitpunkt; 90 Tage), siehe [Statistik](docs/USAGE.md).
 
 <details><summary>Dunkle und mobile Ansicht</summary>
 

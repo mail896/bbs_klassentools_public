@@ -34,6 +34,14 @@ Audit und Änderung werden gemeinsam bestätigt oder zurückgerollt.
 Sitzung, optional Lehrkraft/Klasse, Anzahl und Netzklasse. Keine Fotos, Dateinamen,
 Schülernamen, Roh-IP oder Browserfingerprints. Löschung nach 90 Tagen und Begrenzung
 auf 200.000 jüngste Ereignisse. Statistik ist kein manipulationssicheres Audit.
+Zusätzliche Tabelle `denied_student_logins`: abgewiesene Anmeldungen mit von IServ
+bestätigter Schülerrolle, ohne Lehrkraftrolle. Ereignis-ID, Zeitpunkt, Konto-UUID,
+Anzeigename und optionaler Kontoname; nur administrativ lesbar. Ebenfalls 90 Tage
+und höchstens 200.000 Einträge, unabhängig von den Nutzungsereignissen. Keine
+IP-Adressen, Tokens oder Verbindung zu anonymen DEMO-Sitzungen. Die Tabelle wird
+beim Start ergänzt, bestehende Daten werden nicht umgeschrieben. Ein alter
+Backendstand ignoriert sie; bei einem Rückfall muss ihre Löschfrist weiterhin
+berücksichtigt werden, da alte Stände diese zusätzliche Tabelle nicht bereinigen.
 
 Fotos ehemaliger Mitglieder werden nicht ausgeliefert, aber nicht automatisch gelöscht.
 Einzel-/Klassenlöschung entfernt aktive Bilddaten; Audit bleibt bestehen.

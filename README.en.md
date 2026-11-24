@@ -3,7 +3,7 @@
 [Deutsche Version](README.md) · [Project page & live demo](https://mail896.github.io/bbs_klassentools_public/)
 
 A classroom toolkit for random student selection, team assignment, playful name learning
-and visual seating plans. Developed for BBS Einbeck by Marc Schulz. Version **1.3.0**, October 4, 2026.
+and visual seating plans. Developed for BBS Einbeck by Marc Schulz. Version **1.4.0**, November 24, 2026.
 The interface is German. All demonstration names are fictional and portraits AI-generated.
 
 ## Try it
@@ -58,7 +58,9 @@ version stores shared and private plans with named versions.
 ## Across all tools
 
 Light/dark themes, mobile layouts and fullscreen presentation. The server version
-adds IServ classes, shared photos, training companies, class approvals and audit history.
+adds IServ classes, shared photos, training companies, class approvals, audit history and usage
+statistics, including rejected student sign-ins for administrators (name, account, attempts,
+last attempt; kept for 90 days).
 
 ## Install and test
 

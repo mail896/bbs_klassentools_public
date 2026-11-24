@@ -8,9 +8,15 @@ export function usageStore(file, { now = Date.now } = {}) {
   db.exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS usage_events (
  id TEXT PRIMARY KEY,time INTEGER NOT NULL,session TEXT NOT NULL,actor_id TEXT NOT NULL,actor_name TEXT NOT NULL,
  action TEXT NOT NULL,context TEXT NOT NULL,class_id TEXT NOT NULL,class_name TEXT NOT NULL,amount INTEGER NOT NULL,network TEXT NOT NULL);
- CREATE INDEX IF NOT EXISTS usage_time ON usage_events(time);`);
-  const clean = () =>
-    db.prepare('DELETE FROM usage_events WHERE time < ?').run(now() - 90 * 86400000);
+ CREATE INDEX IF NOT EXISTS usage_time ON usage_events(time);
+ CREATE TABLE IF NOT EXISTS denied_student_logins (
+ id TEXT PRIMARY KEY,time INTEGER NOT NULL,actor_id TEXT NOT NULL,actor_name TEXT NOT NULL,account TEXT NOT NULL) STRICT;
+ CREATE INDEX IF NOT EXISTS denied_student_time ON denied_student_logins(time);`);
+  const clean = () => {
+    const cutoff = now() - 90 * 86400000;
+    db.prepare('DELETE FROM usage_events WHERE time < ?').run(cutoff);
+    db.prepare('DELETE FROM denied_student_logins WHERE time < ?').run(cutoff);
+  };
   clean();
   let lastClean = now();
   const maintenance = setInterval(clean, 3600000);
@@ -39,6 +45,19 @@ export function usageStore(file, { now = Date.now } = {}) {
         'DELETE FROM usage_events WHERE rowid IN (SELECT rowid FROM usage_events ORDER BY time DESC LIMIT -1 OFFSET 200000)',
       ).run();
     },
+    recordDeniedStudent(e) {
+      clean();
+      db.prepare('INSERT OR IGNORE INTO denied_student_logins VALUES (?,?,?,?,?)').run(
+        e.id,
+        now(),
+        e.actorId,
+        e.actorName,
+        e.account,
+      );
+      db.prepare(
+        'DELETE FROM denied_student_logins WHERE rowid IN (SELECT rowid FROM denied_student_logins ORDER BY time DESC, rowid DESC LIMIT -1 OFFSET 200000)',
+      ).run();
+    },
     report(days) {
       clean();
       const since = now() - days * 86400000;
@@ -46,6 +65,12 @@ export function usageStore(file, { now = Date.now } = {}) {
       return {
         days,
         retentionDays: 90,
+        deniedStudents: all(`SELECT name,account,attempts,last FROM (
+          SELECT actor_name name,account,time last,
+          COUNT(*) OVER (PARTITION BY actor_id) attempts,
+          ROW_NUMBER() OVER (PARTITION BY actor_id ORDER BY time DESC,rowid DESC) position
+          FROM denied_student_logins WHERE time>=?
+        ) WHERE position=1 ORDER BY last DESC,name`),
         totals:
           all(`SELECT COUNT(*) events,COUNT(DISTINCT session) sessions,COUNT(DISTINCT NULLIF(actor_id,'')) teachers,
      SUM(action='view') views,SUM(action='pick') picks,SUM(action='teams') teams,

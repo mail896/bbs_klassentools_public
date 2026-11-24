@@ -148,7 +148,7 @@ const seatingContext = {
 let adminUI = null;
 let adminLoading = null;
 async function openAdministration() {
-  adminLoading ??= import('./administration-ui.mjs?v=c21948102b6d')
+  adminLoading ??= import('./administration-ui.mjs?v=36b1c550153c')
     .then(({ createAdministrationUI }) => {
       adminUI = createAdministrationUI(adminContext);
       return adminUI;

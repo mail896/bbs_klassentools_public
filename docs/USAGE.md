@@ -5,6 +5,18 @@ Lehrkräfte, Klasse je Lehrkraft, Einzelauswahl/Teams, lokale Fotoimporte
 (Anzahl) und serverseitige Speichervorgänge. Letzte 100 Aktivitäten ergänzen
 Aggregationen. Keine rückwirkende Rekonstruktion aus Zugriffslogs.
 
+Abgewiesene Schüleranmeldungen werden separat nach bestätigtem IServ-Konto
+zusammengefasst: Name, optionaler IServ-Kontoname (`preferred_username`), Anzahl
+und letzter Zeitpunkt. Nur nach erfolgreicher OIDC-Prüfung, gültiger UUID und
+bestätigter Schülerrolle ohne Lehrkraftrolle; es wird weiterhin keine APP-Sitzung
+angelegt. Der vorhandene Zeitraumfilter und die Seitennavigation gelten auch hier.
+Die Daten entstehen serverseitig im Callback und lassen sich nicht über Browser-
+Nutzungsereignisse einspeisen. Lehrkraft-, Sitzungs- und Nutzungszahlen bleiben
+getrennt. Ablehnungen durch IServ vor Übermittlung einer Identität, abgebrochene
+Anmeldungen und ungültige Callbacks können keinem Schüler zugeordnet werden.
+Keine rückwirkende Erfassung. Bei Protokollierungsfehlern bleibt der Zugang gesperrt;
+im Dienstjournal steht nur eine feste Fehlermeldung ohne Namen oder Tokens.
+
 GET /api/admin/usage prüft frisch Teacher und konfigurierte Admin-UUID.
 POST /api/usage akzeptiert ausschließlich feste Ereignisse und minimale
 Felder. Lehrkraft stammt aus der gültigen Sitzung, Klassen werden gegen
@@ -27,7 +39,11 @@ Neue separate SQLite-Datei neben photoDatabasePath: im Jail
 /data/photos/usage.sqlite, Host /var/lib/klassentools-data/photos/usage.sqlite,
 0600, vorhandenes geschütztes Datenverzeichnis. WAL und PBS wie bei Fotos.
 Stündliche Löschung nach 90 Tagen, zusätzlich bei Abfrage/Aufzeichnung;
-maximal 200.000 jüngste Ereignisse (somit ggf. kürzerer Zeitraum). Keine
+maximal 200.000 jüngste Nutzungsereignisse und separat höchstens 200.000
+abgewiesene Schüleranmeldungen (somit ggf. kürzerer Zeitraum). Die zusätzliche
+Tabelle `denied_student_logins` enthält nur Ereignis-ID, Zeitpunkt, bestätigte
+Konto-UUID, Anzeigename und optionalen Kontonamen; keine IP, Tokens oder Klassen.
+Bestehende Nutzungsdaten bleiben unverändert. Keine
 Übertragung an Dritte. Die Frist betrifft aktive Statistikdaten, keine
 bestehenden PBS-Sicherungen. Die Importoberfläche weist auf die Protokollierung von Änderungen hin. Die finale
 Richtlinie bleibt unverändert; organisatorische Datenschutzbewertung wird

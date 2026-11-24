@@ -25,6 +25,15 @@ const assert = require('node:assert/strict'),
           totals: { views: 4, sessions: 2, teachers: 1, picks: 3, teams: 1 },
           access: [{ access: 'anonymous', sessions: 1, views: 2, imports: 1, photos: 26 }],
           networks: [{ network: 'school', sessions: 1, views: 2 }],
+          deniedStudents:
+            u.searchParams.get('days') === '7'
+              ? []
+              : Array.from({ length: 45 }, (_, i) => ({
+                  name: i === 0 ? '<img src=x onerror=alert(1)>' : 'Testperson ' + i,
+                  account: 'testperson.' + i,
+                  attempts: i + 1,
+                  last: Date.now(),
+                })),
           teachers: [],
           teacherClasses: [],
           classes: [],
@@ -248,7 +257,27 @@ const assert = require('node:assert/strict'),
   assert.match(await activity.locator('tbody tr').first().textContent(), /Nutzung 20/);
   await activity.locator('[data-page="next"]').click();
   assert.equal(await activity.locator('tbody tr').count(), 5);
+  const denied = page
+    .locator('#usage-content section')
+    .filter({ has: page.getByRole('heading', { name: 'Abgewiesene Schüleranmeldungen' }) });
+  assert.equal(await denied.locator('tbody tr').count(), 20);
+  assert.match(await denied.locator('tbody').textContent(), /<img src=x onerror=alert\(1\)>/);
+  assert.equal(await denied.locator('img').count(), 0);
+  assert.match(await denied.locator('tbody tr').first().textContent(), /testperson\.0/);
+  await denied.locator('[data-page="next"]').click();
+  assert.match(await denied.locator('tbody tr').first().textContent(), /Testperson 20/);
+  await denied.locator('[data-page="next"]').click();
+  assert.equal(await denied.locator('tbody tr').count(), 5);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.selectOption('#usage-days', '7');
+  await page.waitForFunction(() =>
+    document
+      .querySelector('#usage-content')
+      .textContent.includes('Keine erfassten Schüleranmeldungen'),
+  );
+
   await page.waitForFunction(() =>
     document.querySelector('#usage-content [role="status"]')?.textContent.includes('Seite 1'),
   );

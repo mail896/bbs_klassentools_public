@@ -348,7 +348,7 @@ export function createAdministrationUI(env) {
     photo_save: 'Fotos gespeichert',
     photo_delete: 'Fotos gelöscht',
   };
-  function usageTable(title, heads, rows) {
+  function usageTable(title, heads, rows, empty = 'Noch keine Nutzung im gewählten Zeitraum.') {
     const section = document.createElement('section'),
       heading = document.createElement('h3'),
       wrap = document.createElement('div'),
@@ -371,7 +371,7 @@ export function createAdministrationUI(env) {
       if (!pageRows.length) {
         const cell = body.insertRow().insertCell();
         cell.colSpan = heads.length;
-        cell.textContent = 'Noch keine Nutzung im gewählten Zeitraum.';
+        cell.textContent = empty;
       }
     };
     wrap.append(table);
@@ -435,6 +435,17 @@ export function createAdministrationUI(env) {
             r.photos,
             r.uploads,
           ]),
+        ),
+        usageTable(
+          'Abgewiesene Schüleranmeldungen',
+          ['Name', 'IServ-Konto', 'Versuche', 'Zuletzt'],
+          (data.deniedStudents || []).map((r) => [
+            r.name,
+            r.account || '–',
+            r.attempts,
+            new Date(r.last).toLocaleString('de-DE'),
+          ]),
+          'Keine erfassten Schüleranmeldungen im gewählten Zeitraum abgewiesen.',
         ),
         usageTable(
           'Herkunft',

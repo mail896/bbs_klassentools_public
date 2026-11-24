@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../backend/server.mjs';
+import { usageStore } from '../backend/usage.mjs';
 import { teacherAllowed } from '../backend/auth.mjs';
 const origin = 'https://apps.school.example';
 const info = {
@@ -503,4 +504,215 @@ test('JSON requests reject malformed and oversized bodies without recording chan
     assert.equal(response.headers.get('cache-control'), 'no-store');
   }
   assert.deepEqual(events, []);
+});
+
+test('only verified student denials are recorded, stay admin-only and never create a session', async (t) => {
+  const usage = usageStore(':memory:');
+  t.after(() => usage.close());
+  const h = await harness(t, 'teacher-uuid', {
+    studentUuid: 'student-uuid',
+    adminUsers: [info.uuid],
+    usage,
+  });
+  const student = {
+    uuid: '22222222-2222-4222-8222-222222222222',
+    name: 'Alex Beispiel',
+    preferred_username: 'alex.beispiel',
+    'iserv:roles': [{ uuid: 'student-uuid', displayName: 'Student' }],
+  };
+  h.setInfo(student);
+  const { end, cookie, tx } = await h.login();
+  assert.equal(end.headers.get('location'), '/klassentools/?login=denied');
+  assert.equal(cookie, undefined);
+  assert.deepEqual(await (await h.call('api/session', { headers: { cookie: tx } })).json(), {
+    authenticated: false,
+  });
+  assert.equal((await h.call('api/admin/usage', { headers: { cookie: tx } })).status, 401);
+  assert.equal((await h.call('api/classes', { headers: { cookie: tx } })).status, 401);
+  const rows = usage.report(30).deniedStudents;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, student.name);
+  assert.equal(rows[0].account, student.preferred_username);
+  assert.equal(rows[0].attempts, 1);
+  // A consumed callback, missing transaction, spoofed query and IdP denial have no verified identity.
+  await h.call('oidc/callback?code=fake&state=expected-state', { headers: { cookie: tx } });
+  await h.call('oidc/callback?code=fake&state=expected-state&name=Fake&preferred_username=fake');
+  const start = await h.call('oidc/login');
+  const fresh = start.headers.getSetCookie()[0].split(';')[0];
+  await h.call('oidc/callback?state=expected-state&error=access_denied&name=Fake', {
+    headers: { cookie: fresh },
+  });
+  const mismatch = await h.call('oidc/login');
+  await h.call('oidc/callback?state=wrong&code=fake', {
+    headers: { cookie: mismatch.headers.getSetCookie()[0].split(';')[0] },
+  });
+  assert.deepEqual(usage.report(30).deniedStudents, rows);
+  const forged = await h.call('api/usage', {
+    method: 'POST',
+    headers: { origin, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      action: 'denied_student',
+      context: 'demo',
+      classId: '',
+      amount: 1,
+    }),
+  });
+  assert.equal(forged.status, 400);
+  await h.login();
+  assert.equal(usage.report(30).deniedStudents[0].attempts, 2);
+  assert.equal(usage.report(30).totals.teachers, 0);
+  assert.equal(usage.report(30).totals.sessions, 0);
+  h.setInfo({ ...student, 'iserv:roles': [] });
+  await h.login();
+  assert.equal(usage.report(30).deniedStudents[0].attempts, 2);
+  h.setInfo({ ...info, 'iserv:roles': [...info['iserv:roles'], ...student['iserv:roles']] });
+  const admin = await h.login();
+  const response = await h.call('api/admin/usage', { headers: { cookie: admin.cookie } });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const report = await response.json();
+  assert.equal(report.deniedStudents[0].attempts, 2);
+  assert.ok(!JSON.stringify(report).includes('synthetic-token'));
+  h.setInfo({ ...info, uuid: student.uuid });
+  assert.equal(
+    (await h.call('api/admin/usage', { headers: { cookie: admin.cookie } })).status,
+    403,
+  );
+  h.setInfo(student);
+  assert.equal(
+    (await h.call('api/admin/usage', { headers: { cookie: admin.cookie } })).status,
+    403,
+  );
+});
+
+test('invalid student UUIDs and unavailable denial logging never grant access or expose claims', async (t) => {
+  const errors = t.mock.method(console, 'error', () => {});
+  let writes = 0;
+  const h = await harness(t, 'teacher-uuid', {
+    studentUuid: 'student-uuid',
+    usage: {
+      recordDeniedStudent() {
+        writes++;
+        throw new Error('private database detail');
+      },
+    },
+  });
+  const student = {
+    ...info,
+    name: 'Private Example',
+    'iserv:roles': [{ uuid: 'student-uuid', displayName: 'Student' }],
+  };
+  h.setInfo({ ...student, uuid: 'invalid' });
+  const invalid = await h.login();
+  assert.equal(invalid.cookie, undefined);
+  assert.equal(invalid.end.headers.get('location'), '/klassentools/?login=denied');
+  assert.equal(writes, 0);
+  h.setInfo(student);
+  const failed = await h.login();
+  assert.equal(failed.cookie, undefined);
+  assert.equal(failed.end.headers.get('location'), '/klassentools/?login=denied');
+  assert.equal(writes, 1);
+  assert.deepEqual(
+    errors.mock.calls.map((c) => c.arguments),
+    Array(2).fill(['Abgewiesene Schüleranmeldung konnte nicht protokolliert werden.']),
+  );
+});
+
+test('denial diagnostics distinguish provider rejection and missing student role without personal data', async (t) => {
+  const warnings = t.mock.method(console, 'warn', () => {});
+  const usage = usageStore(':memory:');
+  t.after(() => usage.close());
+  const h = await harness(t, 'teacher-uuid', { studentUuid: 'student-uuid', usage });
+  // Untrusted callbacks are distinguished without copying their input.
+  await h.call('oidc/callback?state=wrong&error=access_denied&name=Private');
+  assert.deepEqual(
+    warnings.mock.calls.map((call) => call.arguments),
+    [['KlassenTools login diagnostic:', 'transaction_missing']],
+  );
+  const start = await h.call('oidc/login');
+  const tx = start.headers.getSetCookie()[0].split(';')[0];
+  const rejected = await h.call(
+    'oidc/callback?state=expected-state&error=access_denied&error_description=Private',
+    {
+      headers: { cookie: tx },
+    },
+  );
+  assert.equal(rejected.headers.get('location'), '/klassentools/?login=denied');
+  h.setInfo({ ...info, name: 'Private', 'iserv:roles': [] });
+  assert.equal((await h.login()).cookie, undefined);
+  assert.deepEqual(
+    warnings.mock.calls.map((call) => call.arguments),
+    [
+      ['KlassenTools login diagnostic:', 'transaction_missing'],
+      ['KlassenTools login diagnostic:', 'provider_access_denied'],
+      ['KlassenTools login diagnostic:', 'configured_student_role_missing'],
+    ],
+  );
+  assert.deepEqual(usage.report(30).deniedStudents, []);
+});
+
+test('callback diagnostics classify early failures, discard untrusted text and bound logging', async (t) => {
+  const warnings = t.mock.method(console, 'warn', () => {});
+  const h = await harness(t);
+  for (const [error, reason] of [
+    ['invalid_scope', 'provider_invalid_scope'],
+    ['private text', 'provider_unclassified'],
+  ]) {
+    const start = await h.call('oidc/login');
+    const tx = start.headers.getSetCookie()[0].split(';')[0];
+    await h.call('oidc/callback?state=expected-state&error=' + encodeURIComponent(error), {
+      headers: { cookie: tx },
+    });
+    assert.deepEqual(warnings.mock.calls.at(-1).arguments, [
+      'KlassenTools login diagnostic:',
+      reason,
+    ]);
+  }
+  const start = await h.call('oidc/login');
+  const tx = start.headers.getSetCookie()[0].split(';')[0];
+  await h.call('oidc/callback?state=wrong', { headers: { cookie: tx } });
+  assert.deepEqual(warnings.mock.calls.at(-1).arguments, [
+    'KlassenTools login diagnostic:',
+    'state_mismatch',
+  ]);
+  for (let i = 0; i < 25; i++) await h.call('oidc/callback?state=wrong');
+  assert.equal(warnings.mock.callCount(), 20);
+  h.advance(60000);
+  await h.call('oidc/callback?state=wrong');
+  assert.equal(warnings.mock.callCount(), 21);
+});
+
+test('OIDC verification diagnostics never log exception text, claims or causes', async (t) => {
+  const warnings = t.mock.method(console, 'warn', () => {});
+  let failure;
+  const h = await harness(t, 'teacher-uuid', {
+    getProvider: async () => ({
+      begin: async () => ({ state: 'expected-state', url: 'https://school.example/authorize' }),
+      complete: async () => {
+        if (failure) throw failure;
+        return { expires: 0 };
+      },
+    }),
+  });
+  for (const [properties, reason] of [
+    [{ error: 'invalid_scope' }, 'verification_invalid_scope'],
+    [
+      { code: 'OAUTH_JWT_CLAIM_COMPARISON_FAILED' },
+      'verification_OAUTH_JWT_CLAIM_COMPARISON_FAILED',
+    ],
+    [{ error: 'private-claim', code: 'private-code' }, 'verification_unclassified'],
+    [null, 'identity_expired'],
+  ]) {
+    failure =
+      properties &&
+      Object.assign(new Error('private-token', { cause: 'private-cause' }), properties);
+    const result = await h.login();
+    assert.equal(result.cookie, undefined);
+    assert.equal(result.end.headers.get('location'), '/klassentools/?login=failed');
+    assert.deepEqual(warnings.mock.calls.at(-1).arguments, [
+      'KlassenTools login diagnostic:',
+      reason,
+    ]);
+  }
 });

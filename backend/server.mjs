@@ -71,6 +71,44 @@ export function createApp({
   const visits = new Map();
   let usageWindow = now(),
     usageRequests = 0;
+  // Allowlisted reason codes only, with a global bound for unauthenticated callbacks.
+  let diagnosticWindow = now(),
+    diagnosticCount = 0;
+  const loginDiagnostic = (reason) => {
+    if (now() - diagnosticWindow >= 60000) {
+      diagnosticWindow = now();
+      diagnosticCount = 0;
+    }
+    if (diagnosticCount++ < 20) console.warn('KlassenTools login diagnostic:', reason);
+  };
+  const oauthErrorCode = (value) =>
+    [
+      'access_denied',
+      'invalid_request',
+      'invalid_client',
+      'invalid_grant',
+      'invalid_scope',
+      'unauthorized_client',
+      'unsupported_response_type',
+      'server_error',
+      'temporarily_unavailable',
+      'login_required',
+      'interaction_required',
+      'consent_required',
+      'OAUTH_INVALID_RESPONSE',
+      'OAUTH_RESPONSE_IS_NOT_JSON',
+      'OAUTH_RESPONSE_IS_NOT_CONFORM',
+      'OAUTH_JWT_TIMESTAMP_CHECK_FAILED',
+      'OAUTH_JWT_CLAIM_COMPARISON_FAILED',
+      'OAUTH_JSON_ATTRIBUTE_COMPARISON_FAILED',
+      'OAUTH_KEY_SELECTION_FAILED',
+      'OAUTH_WWW_AUTHENTICATE_CHALLENGE',
+      'OAUTH_RESPONSE_BODY_ERROR',
+      'OAUTH_TIMEOUT',
+      'OAUTH_ABORT',
+    ].includes(value)
+      ? value
+      : 'unclassified';
   const visitCookie = '__Secure-klassentools-visit';
   const isAdmin = (info) => {
     try {
@@ -155,19 +193,50 @@ export function createApp({
         const flow = transactions.get(jar[txName]);
         transactions.delete(jar[txName]);
         res.setHeader('Set-Cookie', cookie(txName, '', 0, '/klassentools/oidc/'));
-        if (!flow || !same(url.searchParams.get('state'), flow.state))
+        if (!flow || !same(url.searchParams.get('state'), flow.state)) {
+          loginDiagnostic(!flow ? 'transaction_missing' : 'state_mismatch');
           return redirect(res, '/klassentools/?login=failed');
-        if (url.searchParams.has('error'))
+        }
+        if (url.searchParams.has('error')) {
+          loginDiagnostic('provider_' + oauthErrorCode(url.searchParams.get('error')));
           return redirect(
             res,
             url.searchParams.get('error') === 'access_denied'
               ? '/klassentools/?login=denied'
               : '/klassentools/?login=failed',
           );
+        }
         const result = await (await getProvider()).complete(new URL(origin + req.url), flow);
-        if (result.expires <= now()) return redirect(res, '/klassentools/?login=failed');
-        if (teacherUuid && !teacherAllowed(result.info, teacherUuid))
+        if (result.expires <= now()) {
+          loginDiagnostic('identity_expired');
+          return redirect(res, '/klassentools/?login=failed');
+        }
+        if (teacherUuid && !teacherAllowed(result.info, teacherUuid)) {
+          // Only verified IServ student identities, never names from callback parameters.
+          if (usage && studentUuid && rolesOf(result.info).some((r) => r.uuid === studentUuid)) {
+            try {
+              const text = (value) => (typeof value === 'string' ? value.trim().slice(0, 200) : '');
+              const account = text(result.info.preferred_username);
+              usage.recordDeniedStudent({
+                id: id(),
+                actorId: userUuid(result.info),
+                actorName: text(result.info.name) || account || 'IServ-Schülerkonto',
+                account,
+              });
+            } catch {
+              // Reporting failure must not change the access decision or expose claims.
+              console.error('Abgewiesene Schüleranmeldung konnte nicht protokolliert werden.');
+            }
+          } else {
+            // Fixed diagnostic codes only: never log identities, claims or callback URLs.
+            loginDiagnostic(
+              !usage || !studentUuid
+                ? 'student_reporting_unconfigured'
+                : 'configured_student_role_missing',
+            );
+          }
           return redirect(res, '/klassentools/?login=denied');
+        }
         if (jar[sidName]) sessions.delete(jar[sidName]);
         const sid = id();
         sessions.set(sid, {
@@ -738,8 +807,10 @@ export function createApp({
     } catch (error) {
       if (error instanceof HttpError) return json(res, error.status, { error: error.message });
       // Never log OIDC exceptions: they can contain tokens, codes or claims.
-      if (req.url?.startsWith('/klassentools/oidc/callback'))
+      if (req.url?.startsWith('/klassentools/oidc/callback')) {
+        loginDiagnostic('verification_' + oauthErrorCode(error?.error || error?.code));
         return redirect(res, '/klassentools/?login=failed');
+      }
       json(res, 503, {
         error: 'IServ ist derzeit nicht erreichbar. Bitte versuchen Sie es erneut.',
       });

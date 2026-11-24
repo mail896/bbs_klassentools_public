@@ -2,8 +2,8 @@
 
 Backend Node 24.21.0, npm-Lock v3, Installation mit npm ci --ignore-scripts.
 openid-client 6.8.8 (MIT), OAuth/JWT-Abhängigkeiten siehe backend/package-lock.json.
-sharp 0.35.4 (Apache-2.0) für serverseitige Bilddekodierung/Neukodierung.
-Vorbereitete @img-Binärpakete aus npm, Integrität durch Lockdatei. libvips 8.18.6
+sharp 0.35.5 (Apache-2.0) für serverseitige Bilddekodierung/Neukodierung.
+Vorbereitete @img-Binärpakete aus npm, Integrität durch Lockdatei. libvips 8.18.7
 (LGPL-2.1-or-later), weitere mitgelieferte Bibliotheken/Lizenzen in den Paketen.
 Keine native Kompilierung oder npm-Lifecycle-Skripte im Releaseprozess.
 Node-eigenes node:sqlite, keine zusätzliche Datenbankserverinstallation.
@@ -21,3 +21,16 @@ Playwright 1.63.0 (Apache-2.0) ist als lokale Entwicklungsabhängigkeit fest gep
 
 npm audit am 03.10.2026: 0 gemeldete Schwachstellen sowohl in Backend-Laufzeit-
 als auch in Entwicklungsabhängigkeiten. Momentaufnahme, keine dauerhafte Garantie.
+
+## Prüfung 08.11.2026
+
+sharp auf 0.35.5 mit librsvg 2.63.2 aktualisiert; behebt GHSA-wq5f-xc86-pv6w
+(https://github.com/advisories/GHSA-wq5f-xc86-pv6w). Die bestehende Fotoannahme
+akzeptiert weiterhin ausschließlich JPEG/PNG/WebP anhand Inhalt und Dekodierung.
+Backend-npm-audit danach ohne Meldungen. Fotoverarbeitung erneut getestet.
+
+Entwicklungswerkzeuge: minimatch 10.2.6 / GHSA-g3hv-75wg-m249 wird weiterhin
+als moderat gemeldet (vier abhängige Pakete). Nur lokale ESLint-Dateimuster aus
+dem Repository, keine Nutzereingaben; nicht im Laufzeitartefakt enthalten.
+Kein automatischer ESLint-Major-Downgrade im Rahmen dieses Funktionsupdates.
+Ein kompatibles Werkzeugupdate bleibt separat zu prüfen.
