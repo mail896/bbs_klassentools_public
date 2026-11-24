@@ -7,7 +7,7 @@
     <title>KlassenTools · BBS Einbeck</title>
     <link rel="icon" type="image/png" href="./dice-bbs.png?v=5fbdcce90496" />
     <link rel="stylesheet" href="./style.css?v=177c631890b6" />
-    <script type="module" src="./app.js?v=f031743b42eb"></script>
+    <script type="module" src="./app.js?v=46b72962b4c2"></script>
   </head>
   <body class="entry-pending">
     <header>
@@ -66,7 +66,8 @@
           </div>
           <p class="landing-access">
             IServ: Ihre Klassen, gemeinsame Fotos und gespeicherte Sitzpläne.<br />DEMO: direkt
-            ausprobieren, ohne Anmeldung.
+            ausprobieren, ohne Anmeldung. Abgewiesene Anmeldungen mit bestätigtem Schülerkonto
+            werden für die Administration 90 Tage namentlich protokolliert.
           </p>
         </div>
       </section>
@@ -331,7 +332,7 @@
           (HTML/PHP)</small
         ></span
       ><span class="footer-project"
-        >Version 1.3.0<br /><a
+        >Version 1.4.0<br /><a
           href="https://github.com/mail896/bbs_klassentools_public"
           target="_blank"
           rel="noopener noreferrer"
@@ -575,6 +576,12 @@
             Lokale Fotoimporte: nur Anzahl, keine Bilder oder Dateinamen. Nutzungsereignisse werden
             nach 90 Tagen gelöscht. Browsermeldungen können fehlen oder manipuliert sein; der
             Änderungsverlauf dokumentiert separat gespeicherte Foto- und Sitzplanänderungen.
+          </p>
+          <p>
+            Abgewiesene Schüleranmeldungen: Name, IServ-Konto, Anzahl und letzter Zeitpunkt, sofern
+            IServ die Identität bestätigt hat. Erfassung ab Aktivierung dieser Funktion, keine
+            rückwirkenden Einträge. Aufbewahrung: 90 Tage. Diese Versuche zählen nicht als Lehrkraft
+            oder erfolgreiche Anmeldung.
           </p>
           <p id="usage-status" role="status"></p>
           <div id="usage-content"></div>
